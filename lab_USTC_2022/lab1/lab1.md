@@ -498,21 +498,26 @@ lab1目录
    ```
 
    ```c
-    /*注释等其他特殊符合*/
-   \n  {lines++ ; pos_start = 1; pos_end = 1;}
-   \/\*([^\*]|\*+[^*/])*\*+\/ {
-        for(int i=0;i<strlen(yytext);i++)
-        {
-   		if(yytext[i]=='\n')
-             {
-   			pos_start=1;
-   			pos_end=1;
-   			lines++;
-   		}
-   		else pos_end++;
-        }
+   %x COMMENT
+   /*注释等其他特殊符合*/
+   "/*" { 
+       BEGIN(COMMENT);
+       pos_end += 2;
    }
-   [ \f\n\r\t\v] {pos_start = pos_end;pos_end += strlen(yytext);}
+   <COMMENT>{
+       "*/" { 
+           BEGIN(INITIAL);
+           pos_end += 2;
+       }
+       \n { 
+           lines++;
+           pos_end = 1;
+       }    
+       . {pos_end += 1;}
+   }
+   \n  {lines++ ; pos_start = 1; pos_end = 1;}
+   \[\] {pos_start = pos_end; pos_end += 2; pass_node(yytext);return ARRAY;}
+   [ \f\r\t\v] {pos_start = pos_end;pos_end += strlen(yytext);}
    ```
 
 Flex 词法分析器中，使用 `[ \f\n\r\t\v]`显式枚举空白符，而非直接使用 `\s`
@@ -527,6 +532,7 @@ Flex 词法分析器中，使用 `[ \f\n\r\t\v]`显式枚举空白符，而非�
 词法特性相比 C 语言做了大量简化，比如标识符 `student_id` 在 C 语言中是合法的，但是在 Cminusf 中是不合法的
 
 ```c
+%x COMMENT
 %%
  /* to do for students */
  /* two cases for you, pass_node will send flex's token to bison */
@@ -534,7 +540,6 @@ Flex 词法分析器中，使用 `[ \f\n\r\t\v]`显式枚举空白符，而非�
 . { pos_start = pos_end; pos_end++; return ERROR; }
 
  /****请在此补全所有flex的模式与动作  end******/
- // 基础运算
 \- {pos_start = pos_end; pos_end += 1; pass_node(yytext); return SUB;}
 \* {pos_start = pos_end; pos_end += 1; pass_node(yytext); return MUL;}
 \/ {pos_start = pos_end; pos_end += 1; pass_node(yytext);return DIV;}
@@ -546,7 +551,6 @@ Flex 词法分析器中，使用 `[ \f\n\r\t\v]`显式枚举空白符，而非�
 "==" {pos_start = pos_end; pos_end += 2; pass_node(yytext); return EQ;} 
 "!=" {pos_start = pos_end; pos_end +=2 ; pass_node(yytext); return NEQ;}
 
- // 符号
 \; {pos_start = pos_end; pos_end += 1; pass_node(yytext); return SEMICOLON;}
 \, {pos_start = pos_end; pos_end += 1; pass_node(yytext); return COMMA;}
 \( {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LPARENTHESE;}
@@ -556,7 +560,6 @@ Flex 词法分析器中，使用 `[ \f\n\r\t\v]`显式枚举空白符，而非�
 \{ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LBRACE;}
 \} {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RBRACE;}
 
- // 关键字
 else {pos_start = pos_end; pos_end += 4; pass_node(yytext); return ELSE;}
 if {pos_start = pos_end; pos_end += 2; pass_node(yytext); return IF;}
 int {pos_start = pos_end; pos_end += 3; pass_node(yytext); return INT;}
@@ -565,28 +568,29 @@ void {pos_start = pos_end; pos_end += 4; pass_node(yytext); return VOID;}
 while {pos_start = pos_end; pos_end += 5; pass_node(yytext); return WHILE;}
 float {pos_start = pos_end; pos_end += 5; pass_node(yytext); return FLOAT;}
 
- // ID & NUM
 [a-zA-Z] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LETTER;}
 [0-9] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIGIT;}
 [a-zA-Z]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
 [0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return INTEGER;}
 [0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return FLOATPOINT;}
 
- // 注释等其他特殊符号
+"/*" { 
+    BEGIN(COMMENT);
+    pos_end += 2;
+}
+<COMMENT>{
+    "*/" { 
+        BEGIN(INITIAL);
+        pos_end += 2;
+    }
+    \n { 
+        lines++;
+        pos_end = 1;
+    }    
+    . {pos_end += 1;}
+}
 \n  {lines++ ; pos_start = 1; pos_end = 1;}
 \[\] {pos_start = pos_end; pos_end += 2; pass_node(yytext);return ARRAY;}
-\/\*([^\*]|\*+[^*/])*\*+\/ {
-     for(int i=0;i<strlen(yytext);i++)
-     {
-		if(yytext[i]=='\n')
-          {
-			pos_start=1;
-			pos_end=1;
-			lines++;
-		}
-		else pos_end++;
-     }
-}
 [ \f\r\t\v] {pos_start = pos_end;pos_end += strlen(yytext);}
 %%
 ```
@@ -787,6 +791,8 @@ int pos_start = 1;
 int pos_end = 1;
 ```
 
+
+
 **关键!!!**
 
 **问题2：注意冲突字符的规则顺序**
@@ -794,6 +800,8 @@ int pos_end = 1;
 由于是顺序识别规则：
 
 所以**虽然**规则 `[ \f\r\t\v]`用于匹配空白字符（不返回 token）,**但是**`.`规则（匹配任何字符）被错误地放置在更靠前的位置，导致空白字符被 `.`规则捕获，返回 `ERROR`token（258）
+
+将`.`规则放在最后
 
 ```c
 manbin@compile:~/2023_warm_up_b/_lab1/lab1$ lexer tests/testcases_general/1-return.cminus
@@ -809,7 +817,9 @@ Token         Text      Line    Column (Start,End)
 277              }      1       (27,28)
 ```
 
-**问题3：优先选择最长的可能匹配**
+
+
+**问题3：注意冲突字符的规则顺序**
 
 ```shell
 manbin@compile:~/2023_warm_up_b/_lab1/lab1$ cat ./tests/testcases_general/2-decl_int.cminus 
@@ -821,112 +831,487 @@ manbin@compile:~/2023_warm_up_b/_lab1/lab1$ parser ./tests/testcases_general/2-d
 error at line 2 column 9: syntax error
 ```
 
-语法分析器刚处理完 `type-specifier ID`
+语法分析器在处理时 `type-specifier ID`，测试文件中的 `a`被识别为 `LETTER`而不是 `ID`
 
-* 如果是函数参数，它需要等待 `,`、`)`或 `ARRAY`
+- 规则 `[a-zA-Z]`会匹配单个字母，而 `[a-zA-Z]+`会匹配多个字母
+- 但 `[a-zA-Z]`规则在 `[a-zA-Z]+`之前，所以单个字母会被匹配为 `LETTER`而不是 `ID`
 
-  ```c
-  param-list : param-list COMMA param   { $$ = node(...); }  // 逗号分隔多个参数
-             | param                   { $$ = node(...); }   // 单个参数
-  
-  params : param-list { $$ = node("params", 1, $1); }
-         | VOID      { $$ = node("params", 1, $1); }  // 无参数情况
-  
-  fun-declaration : type-specifier ID LPARENTHESE params RPARENTHESE compound-stmt
-  { 
-      $$
-   = node("fun-declaration", 6, $1, $2, $3, $4, $5, $6);
-  }
-  ```
-
-- 如果是变量声明，它需要等待 `;`或 `[`
-
-  ```c
-  param : type-specifier ID { $$ = node("param", 2, $1, $2); }
-        | type-specifier ID ARRAY { $$ = node("param", 3, $1, $2, $3); }
-  ```
-
-由于**优先选择最长的可能匹配**：分析器更愿意接受`ARRAY`，而不是立即结束
-
-无法确定是规则A（普通参数）还是规则B（数组参数）,它会等待下一个 token 来决定选择哪条规则
-
-它期望看到 `ARRAY`(如果是函数参数数组声明)，但实际输入是 `;`(变量声明结束符)
-
-**为什么SEMICOLON匹配失败？**
-
-解析器错误地将函数体中的变量声明误判为函数参数的延续
-
-> yacc -v syntax_analyzer.y
-
-查看所有语法冲突和状态转换：
-
-```shell
-manbin@compile:~/2023_warm_up_b/_lab1/lab1/src/parser$ yacc -v syntax_analyzer.y
-syntax_analyzer.y:44.14-27: warning: POSIX Yacc forbids dashes in symbol names: type-specifier [-Wyacc]
-   44 | %type <node> type-specifier relop addop mulop
-      |              ^~~~~~~~~~~~~~
-syntax_analyzer.y:45.14-29: warning: POSIX Yacc forbids dashes in symbol names: declaration-list [-Wyacc]
-   45 | %type <node> declaration-list declaration var-declaration fun-declaration local-declarations
-      |              ^~~~~~~~~~~~~~~~
-syntax_analyzer.y:45.43-57: warning: POSIX Yacc forbids dashes in symbol names: var-declaration [-Wyacc]
-   45 | %type <node> declaration-list declaration var-declaration fun-declaration local-declarations
-      |                                           ^~~~~~~~~~~~~~~
-syntax_analyzer.y:45.59-73: warning: POSIX Yacc forbids dashes in symbol names: fun-declaration [-Wyacc]
-   45 | %type <node> declaration-list declaration var-declaration fun-declaration local-declarations
-      |                                                           ^~~~~~~~~~~~~~~
-syntax_analyzer.y:45.75-92: warning: POSIX Yacc forbids dashes in symbol names: local-declarations [-Wyacc]
-   45 | %type <node> declaration-list declaration var-declaration fun-declaration local-declarations
-      |                                                                           ^~~~~~~~~~~~~~~~~~
-syntax_analyzer.y:46.14-26: warning: POSIX Yacc forbids dashes in symbol names: compound-stmt [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |              ^~~~~~~~~~~~~
-syntax_analyzer.y:46.28-41: warning: POSIX Yacc forbids dashes in symbol names: statement-list [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |                            ^~~~~~~~~~~~~~
-syntax_analyzer.y:46.53-67: warning: POSIX Yacc forbids dashes in symbol names: expression-stmt [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |                                                     ^~~~~~~~~~~~~~~
-syntax_analyzer.y:46.69-82: warning: POSIX Yacc forbids dashes in symbol names: iteration-stmt [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |                                                                     ^~~~~~~~~~~~~~
-syntax_analyzer.y:46.84-97: warning: POSIX Yacc forbids dashes in symbol names: selection-stmt [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |                                                                                    ^~~~~~~~~~~~~~
-syntax_analyzer.y:46.99-109: warning: POSIX Yacc forbids dashes in symbol names: return-stmt [-Wyacc]
-   46 | %type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
-      |                                                                                                   ^~~~~~~~~~~
-syntax_analyzer.y:47.14-30: warning: POSIX Yacc forbids dashes in symbol names: simple-expression [-Wyacc]
-   47 | %type <node> simple-expression expression var additive-expression term factor integer float call
-      |              ^~~~~~~~~~~~~~~~~
-syntax_analyzer.y:47.47-65: warning: POSIX Yacc forbids dashes in symbol names: additive-expression [-Wyacc]
-   47 | %type <node> simple-expression expression var additive-expression term factor integer float call
-      |                                               ^~~~~~~~~~~~~~~~~~~
-syntax_analyzer.y:48.21-30: warning: POSIX Yacc forbids dashes in symbol names: param-list [-Wyacc]
-   48 | %type <node> params param-list param args arg-list
-      |                     ^~~~~~~~~~
-syntax_analyzer.y:48.43-50: warning: POSIX Yacc forbids dashes in symbol names: arg-list [-Wyacc]
-   48 | %type <node> params param-list param args arg-list
-      |                                           ^~~~~~~~
-syntax_analyzer.y: warning: 1 shift/reduce conflict [-Wconflicts-sr]
-syntax_analyzer.y: note: rerun with option '-Wcounterexamples' to generate conflict counterexamples
-```
-
-可以发现有关于移进/归约冲突的冲突，这也是问题根本原因。其他警告不用管，按照文档来写即可
-
-**增加优先级声明**
+**调整顺序:**
 
 ```c
-%nonassoc LBRACKET
-%nonassoc ARRAY
-%right SEMICOLON
+ /*ID & NUM*/
+[a-zA-Z]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
+[a-zA-Z] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LETTER;}
+[0-9] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIGIT;}
+[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return INTEGER;}
+[0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return FLOATPOINT;}
 ```
 
-1. 看到 `ARRAY`→ 移进（因为 `ARRAY`优先级高于 `SEMICOLON`）
-2. 看到 `SEMICOLON`→ 归约为数组声明
+
+
+**问题4：很多文件第一行解析就出错了，是因为单行注释规则没写**
+
+添加
+
+```c
+"//"[^\n]* {pos_start = pos_end;pos_end += strlen(yytext);}
+```
 
 
 
-### 2.4 思路
+**问题5：注意冲突字符的规则顺序**
+
+修改`yyerror`，便于调试
+
+```c
+fprintf(stderr, "[ERR]: unable to analysize %s at %d line, from %d to %d: %s\n", yytext, lines, pos_start, pos_end, s);
+```
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser/input/easy$ parser FAIL_comment2.cminus 
+[ERR]: unable to analysize 0 at 4 line, from 12 to 13: syntax error
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser/input/easy$ lexer FAIL_comment2.cminus 
+Token         Text      Line    Column (Start,End)
+280            int      3       (1,4)
+285           main      3       (5,9)
+272              (      3       (9,10)
+283           void      3       (10,14)
+273              )      3       (14,15)
+276              {      3       (15,16)
+282         return      4       (5,11)
+287              0      4       (12,13)
+270              ;      4       (13,14)
+277              }      5       (1,2)
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser/input/easy$ cat FAIL_comment2.cminus 
+// cminus dont support comment like that
+
+int main(void){
+    return 0;
+}
+```
+
+```c
+// 语法规则相关部分
+return-stmt : RETURN SEMICOLON
+            | RETURN expression SEMICOLON
+
+expression : simple-expression  // 进入这里
+
+simple-expression : additive-expression
+
+additive-expression : term
+
+term : factor
+
+factor : integer
+       | ...
+
+integer : INTEGER  // 应该匹配这里 <<<< 但解析失败
+```
+
+**问题关键**：解析器在 `RETURN`后遇到 `0`时，应该匹配 `integer → factor → term → ...`路径但失败了
+
+同样是顺序问题，**INTEGER**
+
+```c
+ /*ID & NUM*/
+[a-zA-Z]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
+[a-zA-Z] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LETTER;}
+[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return INTEGER;}
+[0-9] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIGIT;}
+[0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return FLOATPOINT;}
+```
+
+
+
+**至此easy通关**
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser$ ./eval_lab1.sh easy yes
+[info] Analyzing expr.cminus
+[info] Analyzing FAIL_comment2.cminus
+[ERR]: unable to analysize / at 1 line, from 1 to 2: syntax error
+[info] Analyzing FAIL_comment.cminus
+[ERR]: unable to analysize  at 1 line, from 1 to 20: syntax error
+[info] Analyzing FAIL_function.cminus
+[ERR]: unable to analysize  at 3 line, from 1 to 2: syntax error
+[info] Analyzing FAIL_id.cminus
+[ERR]: unable to analysize 1 at 1 line, from 6 to 7: syntax error
+[info] Analyzing id.cminus
+[info] Comparing...
+[info] No difference! Congratulations!
+```
+
+————————————————————————————————————————————————————————————
+
+**问题6：测试normal遇到了唯一一个错误——[ ]和ARRAY**
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser$ ./eval_lab1.sh normal yes
+[info] Analyzing array.cminus
+[info] Analyzing FAIL_assign.cminus
+[ERR]: unable to analysize = at 4 line, from 4 to 5: syntax error
+[info] Analyzing FAIL_local-decl.cminus
+[ERR]: unable to analysize int at 4 line, from 5 to 8: syntax error
+[info] Analyzing func.cminus
+[info] Analyzing if.cminus
+[info] Analyzing local-decl.cminus
+[info] Analyzing skip_spaces.cminus
+[info] Comparing...
+Files /home/manbin/2023_warm_up_b/_lab1/lab1/tests/1-parser/output_student/normal/func.syntax_tree and /home/manbin/2023_warm_up_b/_lab1/lab1/tests/1-parser/output_standard/normal/func.syntax_tree differ
+```
+
+**查看语法树区别：**
+
+我的：
+
+```c
+|  |  |  |  |  |  |  |  >--* []
+```
+
+标准的：
+
+```c
+|  |  |  |  |  |  |  |  >--* [
+|  |  |  |  |  |  |  |  >--* ]
+```
+
+**查看源文件：**
+
+```c
+float foo(float a, float b[]) {
+	return 1;
+}
+
+int main(void) {
+	return 0;
+}
+```
+
+对于【】由于最长优先匹配，确实匹配到了ARRAY，但是标准不是这样的，所以删了ARRAY规则，然后修改相应出现的语法规则位置，改为`LBRACKET RBRACKET`
+
+```c
+param : type-specifier ID { $$ = node("param", 2, $1, $2); }
+      | type-specifier ID LBRACKET RBRACKET { $$ = node("param", 4, $1, $2, $3, $4); }
+```
+
+**至此normal通关**
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser$ ./eval_lab1.sh normal yes
+[info] Analyzing array.cminus
+[info] Analyzing FAIL_assign.cminus
+[ERR]: unable to analysize = at 4 line, from 4 to 5: syntax error
+[info] Analyzing FAIL_local-decl.cminus
+[ERR]: unable to analysize int at 4 line, from 5 to 8: syntax error
+[info] Analyzing func.cminus
+[info] Analyzing if.cminus
+[info] Analyzing local-decl.cminus
+[info] Analyzing skip_spaces.cminus
+[info] Comparing...
+[info] No difference! Congratulations!
+```
+
+————————————————————————————————————————————————————————————
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab1/lab1/tests/1-parser$ ./eval_lab1.sh hard yes
+[info] Analyzing assoc.cminus
+[info] Analyzing gcd.cminus
+[info] Analyzing hanoi.cminus
+[info] Analyzing if.cminus
+[info] Analyzing selectionsort.cminus
+[info] Analyzing You_Should_Pass.cminus
+[info] Comparing...
+[info] No difference! Congratulations!
+```
+
+**至此hard也通关，全部测试完成**
+
+————————————————————————————————————————————————————————————
+
+
+
+### **2.4 最终答案**
+
+```c
+%option noyywrap
+%x COMMENT
+%{
+/*****************声明和选项设置  begin*****************/
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "../include/common/syntax_tree.h"
+#include "syntax_analyzer.h"
+
+int lines = 1;
+int pos_start = 1;
+int pos_end = 1;
+
+void pass_node(char *text){
+     yylval.node = new_syntax_tree_node(text);
+}
+
+/*****************声明和选项设置  end*****************/
+
+%}
+
+
+%%
+ /* to do for students */
+ /* two cases for you, pass_node will send flex's token to bison */
+\+ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return ADD;}
+
+ /****请在此补全所有flex的模式与动作  end******/
+ /*基础运算*/
+\- {pos_start = pos_end; pos_end += 1; pass_node(yytext); return SUB;}
+\* {pos_start = pos_end; pos_end += 1; pass_node(yytext); return MUL;}
+\/ {pos_start = pos_end; pos_end += 1; pass_node(yytext);return DIV;}
+\< {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LT;}
+\> {pos_start = pos_end; pos_end += 1; pass_node(yytext); return GT;}
+\= {pos_start = pos_end; pos_end += 1; pass_node(yytext); return ASSIN;}
+">=" {pos_start = pos_end; pos_end += 2; pass_node(yytext); return GTE;}
+"<=" {pos_start = pos_end; pos_end += 2; pass_node(yytext); return LTE;}
+"==" {pos_start = pos_end; pos_end += 2; pass_node(yytext); return EQ;} 
+"!=" {pos_start = pos_end; pos_end +=2 ; pass_node(yytext); return NEQ;}
+
+ /*符号*/
+\; {pos_start = pos_end; pos_end += 1; pass_node(yytext); return SEMICOLON;}
+\, {pos_start = pos_end; pos_end += 1; pass_node(yytext); return COMMA;}
+\( {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LPARENTHESE;}
+\) {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RPARENTHESE;}
+\[ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LBRACKET;}
+\] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RBRACKET;}
+\{ {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LBRACE;}
+\} {pos_start = pos_end; pos_end += 1; pass_node(yytext); return RBRACE;}
+
+ /*关键字*/
+else {pos_start = pos_end; pos_end += 4; pass_node(yytext); return ELSE;}
+if {pos_start = pos_end; pos_end += 2; pass_node(yytext); return IF;}
+int {pos_start = pos_end; pos_end += 3; pass_node(yytext); return INT;}
+return {pos_start = pos_end; pos_end += 6; pass_node(yytext); return RETURN;}
+void {pos_start = pos_end; pos_end += 4; pass_node(yytext); return VOID;}
+while {pos_start = pos_end; pos_end += 5; pass_node(yytext); return WHILE;}
+float {pos_start = pos_end; pos_end += 5; pass_node(yytext); return FLOAT;}
+
+ /*ID & NUM*/
+[a-zA-Z]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
+[a-zA-Z] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LETTER;}
+[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return INTEGER;}
+[0-9] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIGIT;}
+[0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return FLOATPOINT;}
+
+ /*注释等其他特殊符号*/
+"/*" { 
+    BEGIN(COMMENT);
+    pos_end += 2;
+}
+<COMMENT>{
+    "*/" { 
+        BEGIN(INITIAL);
+        pos_end += 2;
+    }
+    \n { 
+        lines++;
+        pos_end = 1;
+    }    
+    . {pos_end += 1;}
+}
+\n  {lines++ ; pos_start = 1; pos_end = 1;}
+[ \f\t\r\v] {pos_start = pos_end;pos_end += strlen(yytext);}
+. { pos_start = pos_end; pos_end++; return ERROR; }
+%%
+
+```
+
+```c
+%{
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+
+#include "../include/common/syntax_tree.h" 
+
+// external functions from lex
+extern int yylex();
+extern int yyparse();
+extern int yyrestart();
+extern FILE * yyin;
+
+// external variables from lexical_analyzer module
+extern int lines;
+extern char * yytext;
+extern int pos_end;
+extern int pos_start;
+
+// Global syntax tree
+syntax_tree *gt;
+
+// Error reporting
+void yyerror(const char *s);
+
+// Helper functions written for you with love
+syntax_tree_node *node(const char *node_name, int children_num, ...);
+%}
+
+/* TODO: Complete this definition.
+   Hint: See pass_node(), node(), and syntax_tree.h.
+         Use forward declaring. */
+%union {
+	struct _syntax_tree_node *node;
+}
+
+/* TODO: Your tokens here. */
+%token <node> ERROR
+%token <node> ADD SUB MUL DIV
+%token <node> LT LTE GT GTE EQ NEQ ASSIN
+%token <node> SEMICOLON COMMA LPARENTHESE RPARENTHESE LBRACKET RBRACKET LBRACE RBRACE
+%token <node> ELSE IF INT FLOAT RETURN VOID WHILE ID LETTER DIGIT INTEGER FLOATPOINT ARRAY
+%type <node> type-specifier relop addop mulop
+%type <node> declaration-list declaration var-declaration fun-declaration local-declarations
+%type <node> compound-stmt statement-list statement expression-stmt iteration-stmt selection-stmt return-stmt
+%type <node> simple-expression expression var additive-expression term factor integer float call
+%type <node> params param-list param args arg-list
+%type <node> program
+
+%start program
+
+%%
+/* TODO: Your rules here. */
+
+/* Example:
+program: declaration-list {$$ = node( "program", 1, $1); gt->root = $$;}
+       ;
+*/
+
+program : declaration-list { $$ = node("program", 1, $1); gt->root = $$; }
+declaration-list : declaration-list declaration { $$ = node("declaration-list", 2, $1, $2);}
+                 | declaration { $$ = node("declaration-list", 1, $1); }
+declaration : var-declaration { $$ = node("declaration", 1, $1); }
+            | fun-declaration { $$ = node("declaration", 1, $1); }
+var-declaration : type-specifier ID SEMICOLON { $$ = node("var-declaration", 3, $1, $2, $3); }
+                | type-specifier ID LBRACKET INTEGER RBRACKET SEMICOLON { $$ = node("var-declaration", 6, $1, $2, $3, $4, $5, $6); }
+type-specifier : INT { $$ = node("type-specifier", 1, $1); }
+               | FLOAT { $$ = node("type-specifier", 1, $1); }
+               | VOID { $$ = node("type-specifier", 1, $1); }
+fun-declaration : type-specifier ID LPARENTHESE params RPARENTHESE compound-stmt { $$ = node("fun-declaration", 6, $1, $2, $3, $4, $5, $6); }
+params : param-list { $$ = node("params", 1, $1); }
+       | VOID { $$ = node("params", 1, $1); }
+param-list : param-list COMMA param { $$ = node("param-list", 3, $1, $2, $3); }
+           | param { $$ = node("param-list", 1, $1); }
+param : type-specifier ID { $$ = node("param", 2, $1, $2); }
+      | type-specifier ID LBRACKET RBRACKET { $$ = node("param", 4, $1, $2, $3, $4); }
+compound-stmt : LBRACE local-declarations statement-list RBRACE { $$ = node("compound-stmt", 4, $1, $2, $3, $4); }
+local-declarations : { $$ = node("local-declarations", 0); }
+                   | local-declarations var-declaration { $$ = node("local-declarations", 2, $1, $2); }
+statement-list : { $$ = node("statement-list", 0); }
+               | statement-list statement { $$ = node("statement-list", 2, $1, $2); }
+statement : expression-stmt { $$ = node("statement", 1, $1); }
+          | compound-stmt { $$ = node("statement", 1, $1); }
+          | selection-stmt { $$ = node("statement", 1, $1); }
+          | iteration-stmt { $$ = node("statement", 1, $1); }
+          | return-stmt { $$ = node("statement", 1, $1); }
+expression-stmt : expression SEMICOLON { $$ = node("expression-stmt", 2, $1, $2); }
+                | SEMICOLON { $$ = node("expression-stmt", 1, $1); }
+selection-stmt : IF LPARENTHESE expression RPARENTHESE statement { $$ = node("selection-stmt", 5, $1, $2, $3, $4, $5); }
+               | IF LPARENTHESE expression RPARENTHESE statement ELSE statement { $$ = node("selection-stmt", 7, $1, $2, $3, $4, $5, $6, $7); }
+iteration-stmt : WHILE LPARENTHESE expression RPARENTHESE statement { $$ = node("iteration-stmt", 5, $1, $2, $3, $4, $5); }
+
+return-stmt : RETURN SEMICOLON { $$ = node("return-stmt", 2, $1, $2); }
+            | RETURN expression SEMICOLON { $$ = node("return-stmt", 3, $1, $2, $3); }
+expression : var ASSIN expression { $$ = node("expression", 3, $1, $2, $3); }
+           | simple-expression { $$ = node("expression", 1, $1); }
+var : ID { $$ = node("var", 1, $1); }
+    | ID LBRACKET expression RBRACKET { $$ = node("var", 4, $1, $2, $3, $4); }
+simple-expression : additive-expression relop additive-expression { $$ = node("simple-expression", 3, $1, $2, $3); }
+                  | additive-expression { $$ = node("simple-expression", 1, $1); }
+relop : LTE { $$ = node("relop", 1, $1); }
+      | LT { $$ = node("relop", 1, $1); }
+      | GT { $$ = node("relop", 1, $1); }
+      | GTE { $$ = node("relop", 1, $1); }
+      | EQ { $$ = node("relop", 1, $1); }
+      | NEQ { $$ = node("relop", 1, $1); }
+additive-expression : additive-expression addop term { $$ = node("additive-expression", 3, $1, $2, $3); }
+                    | term { $$ = node("additive-expression", 1, $1); }
+addop : ADD { $$ = node("addop", 1, $1); }
+      | SUB { $$ = node("addop", 1, $1); }
+term : term mulop factor { $$ = node("term", 3, $1, $2, $3); }
+     | factor { $$ = node("term", 1, $1); }
+mulop : MUL { $$ = node("mulop", 1, $1); }
+      | DIV { $$ = node("mulop", 1, $1); }
+factor : LPARENTHESE expression RPARENTHESE { $$ = node("factor", 3, $1, $2, $3); }
+       | var { $$ = node("factor", 1, $1); }
+       | call { $$ = node("factor", 1, $1); }
+       | integer { $$ = node("factor", 1, $1); }
+       | float { $$ = node("factor", 1, $1); }
+integer : INTEGER { $$ = node("integer", 1, $1); }
+float : FLOATPOINT { $$ = node("float", 1, $1); }
+call : ID LPARENTHESE args RPARENTHESE { $$ = node("call", 4, $1, $2, $3, $4); }
+args : { $$ = node("args", 0); }
+     | arg-list { $$ = node("args", 1, $1); }
+arg-list : arg-list COMMA expression { $$ = node("arg-list", 3, $1, $2, $3); }
+         | expression { $$ = node("arg-list", 1, $1); }
+%%
+
+/// The error reporting function.
+void yyerror(const char * s)
+{
+    // TO STUDENTS: This is just an example.
+    // You can customize it as you like.
+    fprintf(stderr, "[ERR]: unable to analysize %s at %d line, from %d to %d: %s\n", yytext, lines, pos_start, pos_end, s);
+}
+
+/// Parse input from file `input_path`, and prints the parsing results
+/// to stdout.  If input_path is NULL, read from stdin.
+///
+/// This function initializes essential states before running yyparse().
+syntax_tree *parse(const char *input_path)
+{
+    if (input_path != NULL) {
+        if (!(yyin = fopen(input_path, "r"))) {
+            fprintf(stderr, "[ERR] Open input file %s failed.\n", input_path);
+            exit(1);
+        }
+    } else {
+        yyin = stdin;
+    }
+
+    lines = pos_start = pos_end = 1;
+    gt = new_syntax_tree();
+    yyrestart(yyin);
+    yyparse();
+    return gt;
+}
+
+/// A helper function to quickly construct a tree node.
+///
+/// e.g. $$ = node("program", 1, $1);
+syntax_tree_node *node(const char *name, int children_num, ...)
+{
+    syntax_tree_node *p = new_syntax_tree_node(name);
+    syntax_tree_node *child;
+    if (children_num == 0) {
+        child = new_syntax_tree_node("epsilon");
+        syntax_tree_add_child(p, child);
+    } else {
+        va_list ap;
+        va_start(ap, children_num);
+        for (int i = 0; i < children_num; ++i) {
+            child = va_arg(ap, syntax_tree_node *);
+            syntax_tree_add_child(p, child);
+        }
+        va_end(ap);
+    }
+    return p;
+}
+
+```
+
+### 2.5 总结和思路
+
+**调试错误尤其注意词法规则的顺序性，然后记得看output_standard和output_student的输出语法树的差异，如果standard是空输出，说明存在语法错误，自信点不要轻易否定自己**
 
 先看实验细节与要求，根据cminusf的文法，列出所有token和type并且根据这个顺序可以去写相关.y文件的规则
 
@@ -935,3 +1320,4 @@ syntax_analyzer.y: note: rerun with option '-Wcounterexamples' to generate confl
 ​	`%type`声明的非终结符必须有对应的语法规则实现，用来将Token 组合成非终结符节点，这可以看语法分析的实验内容，一一对应补全
 
 所以token需要在.l文件中一一匹配相应规则，此时再看词法分析的实验内容，将其匹配规则和行为补全
+

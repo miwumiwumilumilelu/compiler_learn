@@ -1,4 +1,5 @@
 %option noyywrap
+%x COMMENT
 %{
 /*****************声明和选项设置  begin*****************/
 #include <stdio.h>
@@ -58,30 +59,29 @@ while {pos_start = pos_end; pos_end += 5; pass_node(yytext); return WHILE;}
 float {pos_start = pos_end; pos_end += 5; pass_node(yytext); return FLOAT;}
 
  /*ID & NUM*/
-[a-zA-Z][a-zA-Z0-9]* {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
+[a-zA-Z]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return ID;}
 [a-zA-Z] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return LETTER;}
 [0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return INTEGER;}
 [0-9] {pos_start = pos_end; pos_end += 1; pass_node(yytext); return DIGIT;}
 [0-9]+\.|[0-9]*\.[0-9]+ {pos_start = pos_end; pos_end += strlen(yytext); pass_node(yytext); return FLOATPOINT;}
 
  /*注释等其他特殊符号*/
-\n  {lines++ ; pos_start = 1; pos_end = 1;}
-\[\] {pos_start = pos_end; pos_end += 2; pass_node(yytext);return ARRAY;}
-
-\/\*([^\*]|(\*)*[^\*\/])*(\*)*\*\/ {
-     for(int i=0;i<strlen(yytext);i++)
-	 {
-		if(yytext[i]=='\n')
-          {
-			pos_start=1;
-			pos_end=1;
-			lines++;
-		}
-		else pos_end++;
-     }
+"/*" { 
+    BEGIN(COMMENT);
+    pos_end += 2;
 }
-
-"//"[^\n]* {pos_start = pos_end;pos_end += strlen(yytext);}
+<COMMENT>{
+    "*/" { 
+        BEGIN(INITIAL);
+        pos_end += 2;
+    }
+    \n { 
+        lines++;
+        pos_end = 1;
+    }    
+    . {pos_end += 1;}
+}
+\n  {lines++ ; pos_start = 1; pos_end = 1;}
 [ \f\t\r\v] {pos_start = pos_end;pos_end += strlen(yytext);}
 . { pos_start = pos_end; pos_end++; return ERROR; }
 %%
