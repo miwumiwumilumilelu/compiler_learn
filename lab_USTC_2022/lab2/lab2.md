@@ -1,5 +1,5 @@
-
-# _lab2 Light IR C++中间代码生成
+> # _lab2 Light IR C++中间代码生成
+>
 
 ## 1. Light IR 预热
 
@@ -973,6 +973,745 @@ public:
 
   **内存管理**：组合类型对象存储在 `Module`内部的类型缓存表中（如 `std::map<TypeKey, Type*>`），键值由类型特征决定（如指针指向的元素类型 + 数组元素数量）
 
-
+__________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________________
 
 ## 2. 访问者模式
+
+Visitor Pattern（访问者模式）是一种在 LLVM 项目源码中被广泛使用的设计模式。在本实验中，指的是**语法树**类有一个方法接受**访问者**，将自身引用传入**访问者**，而**访问者**类中集成了根据语法树节点内容生成 IR 的规则
+
+### 2.1 实验题
+
+在 `tests/2-ir-gen/warmup/calculator` 目录下提供了一个接受算术表达式，利用访问者模式，产生计算算数表达式的中间代码的程序，其中 `calc_ast.hpp` 定义了语法树的不同节点类型，`calc_builder.cpp` 实现了访问不同语法树节点 `visit` 函数。**阅读这两个文件和目录下的其它相关代码**，理解语法树是如何通过访问者模式被遍历的，并回答相应思考题
+
+**编译**
+
+```shell
+$ cd ~/2023_warm_up_b/_lab2/lab2/build
+# 使用 cmake 生成 makefile 等文件
+$ cmake ..
+# 使用 make 进行编译
+$ make
+```
+
+**运行与测试**
+
+```shell
+# 在 build 目录下操作
+$ ./calc
+Input an arithmatic expression (press Ctrl+D in a new line after you finish the expression):
+4 * (8 + 4 - 1) / 2
+result and result.ll have been generated.
+$ ./result
+22
+```
+
+
+
+#### 2.1.1 **calc_ast.hpp**
+
+**(语法树不同节点类型)**
+
+**`virtual void accept(CalcASTVisitor &) override final;`**声明一个不可再重写的虚函数，并强制要求其必须覆盖基类中的同名虚函数。
+
+```c
+class CalcASTVisitor {
+  public:
+    virtual void visit(CalcASTInput &) = 0;
+    virtual void visit(CalcASTNum &) = 0;
+    virtual void visit(CalcASTExpression &) = 0;
+    virtual void visit(CalcASTTerm &) = 0;
+};
+```
+
+虚函数，支持运行时多态（派生类可通过重写改变行为）
+
+**在访问者模式中，用于实现节点接受访问者的入口方法，且不允许子类修改其行为**
+
+**`final`**：禁止后续派生类重写此函数，终结继承链中的重写行为
+
+
+
+**`virtual void accept(CalcASTVisitor &) override;`**声明一个重写基类虚函数的方法，强调其覆盖意图
+
+
+
+**`std::shared_ptr<CalcASTExpression> expression;`**声明一个**智能指针**，指向`CalcASTExpression`类型的对象
+
+**所有权管理**：`std::shared_ptr`自动释放内存，避免泄漏（通过引用计数实现）
+
+
+
+**高优先级运算符下沉到更深层级**：在AST中，优先级高的运算符会被解析为更深层级的子树。例如：
+
+- 表达式 `1 + 2 * 3`的AST中，乘法（`*`）优先级高于加法（`+`），因此 `2 * 3`会作为子树的右节点嵌套在加法节点下，形成层级更深的子树
+
+> (+)
+>   ├── 1 
+>   └── (*) 
+>         ├── 2 
+>         └── 3
+
+
+
+
+
+在抽象语法树（AST）的设计中，`CalcASTExpression`（表达式节点）和`CalcASTTerm`（项节点）采用左右两侧结构（如 `expression + op + term`或 `term + op + factor`）
+
+* `CalcASTInput *get_root() { return root.get(); }`
+
+  根节点，包含一个表达式（expression）
+
+  ```c
+  struct CalcASTInput : CalcASTNode {
+      virtual void accept(CalcASTVisitor &) override final;
+      std::shared_ptr<CalcASTExpression> expression;
+  };
+  ```
+
+  `accept()`实现访问者模式，允许外部遍历器访问自身
+
+  通过 `expression`智能指针连接表达式子树
+
+* ```c
+  struct CalcASTExpression : CalcASTFactor {
+      void accept(CalcASTVisitor &) override final;
+      std::shared_ptr<CalcASTExpression> expression; // 左递归表达式
+      AddOp op; // 操作符(+ / -)
+      std::shared_ptr<CalcASTTerm> term; // 右侧项
+  };
+  ```
+
+* ```c
+  struct CalcASTTerm : CalcASTNode {
+      virtual void accept(CalcASTVisitor &) override final;
+      std::shared_ptr<CalcASTTerm> term; // 左递归项
+      MulOp op; // 操作符(x / \)
+      std::shared_ptr<CalcASTFactor> factor; // 右侧因子
+  };
+  ```
+
+* ```c
+  struct CalcASTFactor : CalcASTNode {
+      virtual void accept(CalcASTVisitor &) override;
+  };
+  ```
+
+  数字 or 括号表达式——表示**不可再分的计算单元**
+
+  - **派生类**
+    - **`CalcASTNum`**：叶子节点，存储整数值
+    - **`CalcASTExpression`**：括号表达式（如 `(1+2)`退化为一个因子）
+
+* ```c
+  struct CalcASTNum : CalcASTFactor {
+      virtual void accept(CalcASTVisitor &) override final;
+      int val;
+  };
+  ```
+
+  AST的叶子节点，无子节点
+
+
+
+**(1 + 2) * 3:**
+
+> CalcASTInput
+> └── CalcASTExpression (OP_MUL)
+>     ├── CalcASTTerm (左操作数: 括号表达式)
+>     │   └── CalcASTFactor
+>     │       └── CalcASTExpression (OP_PLUS)
+>     │           ├── CalcASTTerm (左项: 1)
+>     │           │   └── CalcASTFactor
+>     │           │       └── CalcASTNum(val=1)
+>     │           ├── OP_PLUS
+>     │           └── CalcASTTerm (右项: 2)
+>     │               └── CalcASTFactor
+>     │                   └── CalcASTNum(val=2)
+>     ├── OP_MUL
+>     └── CalcASTFactor (右因子: 3)
+>         └── CalcASTNum(val=3)
+
+
+
+#### 2.1.2 calc_builder.cpp
+
+- **访问者基类**：`CalcASTVisitor`（在`calc_ast.hpp`中声明）
+  - 为每种AST节点类型定义`visit`方法（如`visit(CalcASTInput&)`、`visit(CalcASTExpression&)`等）
+- **具体访问者**：`CalcBuilder`（在`calc_builder.cpp`中实现）
+  - 继承`CalcASTVisitor`，实现所有`visit`方法。
+  - **核心作用**：遍历AST并生成LLVM IR指令
+
+
+
+
+
+- **元素基类**：`CalcASTNode`（在`calc_ast.hpp`中声明）
+  - 定义`accept`方法：`virtual void accept(CalcASTVisitor&) = 0`
+- **具体元素**：各类AST节点（如`CalcASTExpression`、`CalcASTTerm`）
+  - 实现`accept`方法：调用访问者的`visit`方法并传入自身引用
+
+
+
+创建llvm模块和IR构建器
+
+`module = std::unique_ptr<Module>(new Module()); `
+
+`builder = std::make_unique<IRBuilder>(nullptr, module.get());`
+
+然后设置基本块bb
+
+
+
+```c
+void CalcBuilder::visit(CalcASTInput &node) { 
+    node.expression->accept(*this); // 启动表达式子树的遍历
+}
+```
+
+直接访问表达式子节点，启动整个AST的遍历
+
+
+
+```c
+void visit(CalcASTExpression &node) {
+    if (node.expression == nullptr) { // 单操作数（如直接数字或项）
+        node.term->accept(*this);    // 直接访问项节点
+    } else {                          // 二元运算（如 a + b）
+        node.expression->accept(*this); // 递归访问左侧表达式
+        auto l_val = val;              // 保存左操作数结果
+        node.term->accept(*this);      // 访问右侧项
+        auto r_val = val;              // 保存右操作数结果
+        switch (node.op) {            // 根据运算符生成IR指令
+            case OP_PLUS:  val = builder->create_iadd(l_val, r_val); break;
+            case OP_MINUS: val = builder->create_isub(l_val, r_val); break;
+        }
+    }
+}
+```
+
+**递归下降**：先处理左子树，再处理右子树，符合表达式求值顺序
+
+**优先级实现**：表达式节点仅处理加减法，高优先级的乘除法由`CalcASTTerm`处理，确保`3+2 * 1`中乘法优先生成IR
+
+
+
+```c
+void visit(CalcASTTerm &node) {
+    if (node.term == nullptr) {        // 单操作数（如因子）
+        node.factor->accept(*this); 
+    } else {                          // 二元运算（如 a * b）
+        node.term->accept(*this);      // 递归访问左侧项
+        auto l_val = val; 
+        node.factor->accept(*this);    // 访问右侧因子
+        auto r_val = val;
+        switch (node.op) {            // 生成乘除指令
+            case OP_MUL: val = builder->create_imul(l_val, r_val); break;
+            case OP_DIV: val = builder->create_isdiv(l_val, r_val); break;
+        }
+    }
+}
+```
+
+
+
+```c
+void visit(CalcASTNum &node) {
+    val = ConstantInt::get(node.val, module.get()); // 生成整数常量IR
+}
+```
+
+叶子节点
+
+
+
+**举例:**
+
+**(1+2) * 3**
+
+整个表达式本质是乘法运算，无需外层 `CalcASTExpression`包装
+
+即无需统一管理加减（低优先级）和乘除（高优先级）的运算顺序
+
+> CalcASTInput
+>   └── CalcASTTerm (OP_MUL)
+>        ├── CalcASTFactor (括号表达式)
+>        │    └── CalcASTExpression (OP_PLUS)
+>        │         ├── CalcASTTerm → CalcASTNum(1)
+>        │         └── CalcASTTerm → CalcASTNum(2)
+>        └── CalcASTFactor → CalcASTNum(3)
+
+1. **IR生成步骤**：
+
+   - 访问`CalcASTTerm`（乘法）：
+     1. 递归访问左因子（括号表达式）→ 进入`CalcASTExpression`（加法）
+     2. 加法节点：
+        - 访问左项（`CalcASTNum(1)`）→ `val = 常量1`
+        - 访问右项（`CalcASTNum(2)`）→ `val = 常量2`
+        - 生成`iadd`指令 → `val = %add = iadd 1, 2`
+     3. 访问右因子（`CalcASTNum(3)`）→ `val = 常量3`
+     4. 生成`imul`指令 → `%mul = imul %add, 3`
+
+2. **最终IR**：
+
+   ```cpp
+   %add = iadd i32 1, i32 2
+   %mul = imul i32 %add, i32 3
+   ```
+
+
+
+**1 + 2 - 3**
+
+> CalcASTInput
+> └── CalcASTExpression (OP_MINUS)
+>     ├── CalcASTExpression (OP_PLUS)  // 左子树：1+2
+>     │   ├── CalcASTTerm → CalcASTNum(1)
+>     │   └── CalcASTTerm → CalcASTNum(2)
+>     └── CalcASTTerm → CalcASTNum(3)  // 右操作数
+
+1. **IR 生成步骤**：
+
+- **访问根节点 `CalcASTExpression`（减法 `OP_MINUS`）**：
+
+  1. **处理左子树（加法 `OP_PLUS`）**：
+
+     - 递归访问左操作数（`CalcASTNum(1)`）→ `val = ConstantInt::get(1)`（生成常量 `1`）
+
+     - 递归访问右操作数（`CalcASTNum(2)`）→ `val = ConstantInt::get(2)`（生成常量 `2`）
+
+       生成加法指令：
+
+       `%add_tmp = iadd i32 1, i32 2`（将结果暂存为 `%add_tmp`）
+
+  2. **处理右子树（常数 `3`）**：
+
+     - 访问 `CalcASTNum(3)`→ `val = ConstantInt::get(3)`（生成常量 `3`）
+
+  3. **生成根节点减法指令**：
+
+     - 将左子树结果（`%add_tmp`）与右子树常量（`3`）结合，生成：
+
+       `%sub_tmp = isub i32 %add_tmp, i32 3`（计算 `%add_tmp - 3`）
+
+2. **最终 IR**：
+
+```cpp
+%add_tmp = iadd i32 1, i32 2   ; 1 + 2 → %add_tmp
+%sub_tmp = isub i32 %add_tmp, i32 3   ; %add_tmp - 3 → %sub_tmp
+```
+
+
+
+### 2.2 思考题
+
+1. 分析 `calc` 程序在输入为 `4 * (8 + 4 - 1) / 2` 时的行为：
+
+   a.请画出该表达式对应的抽象语法树（使用 `calc_ast.hpp` 定义的语法树节点来表示，并给出节点成员存储的值），并给节点使用数字编号。
+
+   > CalcASTInput [1] 
+   > └── CalcASTExpression [2] 
+   >     └── CalcASTTerm [3] (op = OP_DIV) 
+   >         ├── CalcASTTerm [4] (op = OP_MUL) 
+   >         │   ├── CalcASTFactor [5] 
+   >         │   │   └── CalcASTNum [6] (val = 4) 
+   >         │   └── CalcASTFactor [7] 
+   >         │       └── CalcASTExpression [8] (op = OP_MINUS)  // 括号内整体表达式
+   >         │           ├── CalcASTExpression [9] (op = OP_PLUS)  // 左操作数：8+4
+   >         │           │   ├── CalcASTTerm [10] 
+   >         │           │   │   └── CalcASTFactor [11] 
+   >         │           │   │       └── CalcASTNum [12] (val = 8) 
+   >         │           │   └── CalcASTTerm [13] 
+   >         │           │       └── CalcASTFactor [14] 
+   >         │           │           └── CalcASTNum [15] (val = 4) 
+   >         │           └── CalcASTTerm [16]  // 右操作数：1
+   >
+   > ​        │               └── CalcASTFactor [17] 
+   > ​        │                   └── CalcASTNum [18] (val = 1)
+   > ​        └── CalcASTFactor [19]
+   > ​            └── CalcASTNum [20] (val = 2)
+
+   **遵循深层优先级高**
+
+   **最高优先级：括号内计算**
+
+   `7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18`
+
+   **次高优先级：乘法**
+
+   `4 → 5 → 6`
+
+   `[7]的结果`
+
+   **最低优先级：除法**（由于**结合性方向**，所以除法在这个例子中低于乘法）！！！
+
+   `[3]整合结果`
+
+   `19 → 20`
+
+   
+
+   b.请给出示例代码在用访问者模式遍历该语法树时，访问者到达语法树节点的顺序。序列请按如下格式指明（序号为问题 1.a 中的编号）：3->2->5->1->1
+
+   `1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20`
+
+1. **入口与根节点**
+   - 访问 `CalcASTInput [1]`→ 进入其子节点 `CalcASTExpression [2]`
+   - 访问 `CalcASTExpression [2]`→ 调用其子项 `CalcASTTerm [3]`（除法操作）
+2. **除法左子树（乘法）**
+   - 访问 `CalcASTTerm [3]`（除法）→ 优先访问左操作数 `CalcASTTerm [4]`（乘法操作）
+     - 访问乘法左因子 `CalcASTFactor [5]`→ 进入其子节点 `CalcASTNum [6]`（值 `4`）
+     - 访问乘法右因子 `CalcASTFactor [7]`（括号表达式）→ 进入其子节点 `CalcASTExpression [8]`
+3. **括号内表达式（加减法）**
+   - 访问 `CalcASTExpression [8]`（括号内整体表达式）→ 先访问左子树 `CalcASTExpression [9]`（加法）
+     - 访问加法左项 `CalcASTTerm [10]`→ 因子 `CalcASTFactor [11]`→ 数字 `CalcASTNum [12]`（值 `8`）
+     - 访问加法右项 `CalcASTTerm [13]`→ 因子 `CalcASTFactor [14]`→ 数字 `CalcASTNum [15]`（值 `4`）
+   - 访问 `CalcASTExpression [8]`的右子树 `CalcASTTerm [16]`（减法右操作数）
+     - 访问 `CalcASTTerm [16]`→ 因子 `CalcASTFactor [17]`→ 数字 `CalcASTNum [18]`（值 `1`）
+4. **除法右子树（数字）**
+   - 回溯到除法节点 `[3]`→ 访问右操作数 `CalcASTFactor [19]`→ 数字 `CalcASTNum [20]`（值 `2`）
+
+
+
+## 3. IR 自动化生成 (实验)
+
+在实验框架下，利用访问者模式遍历抽象语法树，调用 Light IR C++ 库，实现 IR 自动化生成
+
+实验框架实现了 Lab1 生成的分析树到 C++ 上的抽象语法树的转换。可以使用[访问者模式]来实现对抽象语法树的遍历，**[ast.hpp]文件中包含抽象语法树节点定义**
+
+### 3.1 实验框架介绍
+
+实验框架实现了 Lab1 生成的分析树到 C++ 上的抽象语法树的转换。可以使用[访问者模式]来实现对抽象语法树的遍历，**[ast.hpp]文件中包含抽象语法树节点定义**
+
+`CminusfBuilder` 类定义在 [cminusf_builder.hpp]文件中，`CminusfBuilder` 类中定义了对抽象语法树不同语法节点的 `visit` 函数，实验已给出了一些语法树节点的访问规则，其余的需要学生补充
+
+**scope符号表：**
+
+`Scope` 类的作用是管理编译器或程序中的作用域（Scope），用于存储和查找变量或符号的定义。它通过维护一个嵌套的作用域结构（类似栈的结构）来实现符号的作用域管理。以下是其主要功能和用途(看注释！看注释！看注释!）
+
+```cpp
+class Scope {
+  public:
+    // enter a new scope
+    // enter()：进入一个新的作用域（创建一个新的作用域层）
+    void enter() { inner.emplace_back(); }
+
+    // exit a scope
+    // 退出当前作用域（移除最近的作用域层）
+    void exit() { inner.pop_back(); }
+	// 判断当前是否处于全局作用域（只有一个作用域层时为全局作用域）
+    bool in_global() { return inner.size() == 1; }
+
+    // push a name to scope
+    // return true if successful
+    // return false if this name already exits
+    // 向当前作用域添加一个符号（变量或函数）。如果符号已存在，则返回 false，否则返回 true
+    bool push(const std::string& name, Value *val) {
+        auto result = inner[inner.size() - 1].insert({name, val});
+        return result.second;
+    }
+	// 从最近的作用域开始查找符号，直到找到为止。如果找不到符号，会触发断言错误
+    Value *find(const std::string& name) {
+        for (auto s = inner.rbegin(); s != inner.rend(); s++) {
+            auto iter = s->find(name);
+            if (iter != s->end()) {
+                return iter->second;
+            }
+        }
+
+        // Name not found: handled here?
+        assert(false && "Name not found in scope");
+
+        return nullptr;
+    }
+	// 来存储作用域层次结构：
+    // std::vector：表示作用域的栈结构，每个作用域层是一个std::map
+    // std::map<std::string, Value *>：表示符号表，存储符号名称和对应的值（Value *) 
+  private:
+    std::vector<std::map<std::string, Value *>> inner;
+};
+```
+
+
+
+在 `CminusfBuilder` 构造函数函数中，下列代码片段是对 [Cminusf 语义]中的 4 个预定义函数进行声明并加入全局符号表中，在生成 IR 时可从符号表中查找。我们的测试样例会使用这些函数，从而实现 IO
+
+```c
+scope.enter();
+scope.push("input", input_fun);
+scope.push("output", output_fun);
+scope.push("outputFloat", output_float_fun);
+scope.push("neg_idx_except", neg_idx_except_fun);
+```
+
+
+
+`CminusfBuilder` 类使用成员 `context` 存储翻译时状态，下列代码片段是 `context` 的定义，学生需要为该结构体添加更多域来存储翻译时的状态
+
+```c
+struct {
+    // function that is being built
+    Function *func = nullptr;
+} context;
+```
+
+
+
+### 3.2 实验内容和流程理解
+
+阅读lab1的 [Cminusf 语义]，并根据语义补全 `include/cminusfc/cminusf_builder.hpp` 与 `src/cminusfc/cminusf_builder.cpp` 文件，实现 IR 自动产生的算法，使得它能正确编译任何合法的 Cminusf 程序，生成符合 [Cminusf 语义]的 IR
+
+补充内容在实验框架中有提到
+
+1. 请比较通过 cminusfc 产生的 IR 和通过 clang 产生的 IR 来找出可能的问题或发现新的思路。
+2. 使用 GDB 进行调试来检查错误的原因。
+3. 我们为 `Function`、`Type` 等类都实现了 `print` 接口，可以使用我们提供的 [logging 工具]进行打印调试。
+
+```
+.
+├── CMakeLists.txt
+├── include                             <- 实验所需的头文件
+│   ├── ...
+|   ├── cminusfc
+|   |    └── cminusf_builder.hpp        <- 该阶段需要修改的文件
+│   ├── lightir/*
+│   └── common
+│        ├── ast.hpp
+│        ├── logging.hpp
+│        └── syntax_tree.h
+├── src
+│   ├── ...
+│   └── cminusfc
+│       ├── cminusfc.cpp                <- cminusfc 的主程序文件
+│       └── cminusf_builder.cpp         <- 该阶段需要修改的文件
+└── tests
+    ├── ...
+    └── 2-ir-gen
+        └── autogen
+            ├── testcases                <- 助教提供的测试样例
+            ├── answers                  <- 助教提供的测试样例
+            └── eval_lab2.py             <- 助教提供的测试脚本
+```
+
+**编译**
+
+```shell
+$ cd _lab2/lab2/build
+# 使用 cmake 生成 makefile 等文件
+$ cmake ..
+# 使用 make 进行编译
+$ make
+# 安装以链接 libcminus_io.a
+$ sudo make install
+```
+
+如果构建成功，会在 `build` 文件夹下找到 cminusfc 可执行文件，它能将 cminus 文件输出为 IR 文件，编译成二进制可执行文件
+
+**运行**
+
+在 `tests/testcases_general` 文件夹中有一些通用案例。当需要对 `.cminus` 单个文件测试时，可以这样使用：
+
+```shell
+# 1.生成 IR 文件
+# 假设 cminusfc 的路径在你的 $PATH 中，并且你现在在 test.cminus 文件所在目录中
+$ cminusfc test.cminus -emit-llvm
+#此时会在同目录下生成同名的 .ll 文件，在这里即为 test.ll
+
+# or
+
+# 2.生成可执行文件
+# 上面生成的 .ll 文件用于阅读，如果需要运行，需要调用 clang 编译链接生成二进制文件 test
+$ clang -O0 -w -no-pie test.ll -o test -lcminus_io
+```
+
+**测试**
+
+自动测试脚本和所有测试样例都是公开的，它在 `tests/2-ir-gen/autogen` 目录下，使用方法如下:
+
+```shell
+# 在 tests/2-ir-gen/autogen 目录下运行：
+$ python3 ./eval_lab2.py
+$ cat eval_result
+```
+
+测试结果会输出到 `tests/2-ir-gen/autogen/eval_result`
+
+
+
+**大概流程梳理访问者模式，以ASTProgram为例：**
+
+```cpp
+// 在 ast.hpp
+struct ASTProgram : ASTNode {
+    virtual Value *accept(ASTVisitor &) override final;
+    virtual ~ASTProgram() = default;
+    std::vector<std::shared_ptr<ASTDeclaration>> declarations;
+};
+```
+
+```cpp
+// 在 ast.cpp
+Value* ASTProgram::accept(ASTVisitor &visitor) {
+    return visitor.visit(*this); // 调用访问者的 visit(ASTProgram&) 方法
+}
+```
+
+- **参数**：接收一个 `ASTVisitor`对象（如 `CminusfBuilder`）,类似《规则选择书》
+- **行为**：将自身（`*this`）传递给访问者的 `visit`方法，触发具体的处理逻辑
+
+
+
+由以上得知`ASTProgram`继承自 `ASTNode` ，可简化为：
+
+```cpp
+struct ASTProgram {
+    std::vector<std::shared_ptr<ASTDeclaration>> declarations;
+    Value* accept(ASTVisitor& v) { return v.visit(*this); }
+};
+```
+
+**`ASTProgram`**就像一个大仓库，里面存放着所有快递包裹（变量声明、函数声明等)；当有人来取件时，管理员（`accept`）会说："请按照『程序包裹』的标准流程处理我"
+
+
+
+```c++
+// ast.hpp
+class ASTVisitor {
+  public:
+    virtual Value *visit(ASTProgram &) = 0;
+    virtual Value *visit(ASTNum &) = 0;
+    virtual Value *visit(ASTVarDeclaration &) = 0;
+    virtual Value *visit(ASTFunDeclaration &) = 0;
+    virtual Value *visit(ASTParam &) = 0;
+    virtual Value *visit(ASTCompoundStmt &) = 0;
+    virtual Value *visit(ASTExpressionStmt &) = 0;
+    virtual Value *visit(ASTSelectionStmt &) = 0;
+    virtual Value *visit(ASTIterationStmt &) = 0;
+    virtual Value *visit(ASTReturnStmt &) = 0;
+    virtual Value *visit(ASTAssignExpression &) = 0;
+    virtual Value *visit(ASTSimpleExpression &) = 0;
+    virtual Value *visit(ASTAdditiveExpression &) = 0;
+    virtual Value *visit(ASTVar &) = 0;
+    virtual Value *visit(ASTTerm &) = 0;
+    virtual Value *visit(ASTCall &) = 0;
+};
+```
+
+**`ASTVisitor`**就像快递公司的《操作手册》，规定如何拆不同类型的包裹
+
+
+
+```cpp
+// cminusf_builder.hpp
+class CminusfBuilder : public ASTVisitor {
+	public:
+		......
+	private:
+		......
+		virtual Value *visit(ASTProgram &) override final;
+		......
+}
+```
+
+```cpp
+// cminusf_builder.cpp
+Value* CminusfBuilder::visit(ASTProgram &node) {
+    VOID_T = module->get_void_type();
+    INT1_T = module->get_int1_type();
+    INT32_T = module->get_int32_type();
+    INT32PTR_T = module->get_int32_ptr_type();
+    FLOAT_T = module->get_float_type();
+    FLOATPTR_T = module->get_float_ptr_type();
+
+    Value *ret_val = nullptr;
+    for (auto &decl : node.declarations) {
+        ret_val = decl->accept(*this);
+    }
+    return ret_val;
+}
+```
+
+先进入ASTProgram的accept——>再进入CminusfBuilder的visit(ASTProgram&)，以下程序
+
+```cpp
+    Value *ret_val = nullptr;
+    for (auto &decl : node.declarations) {
+        ret_val = decl->accept(*this);
+    }
+    return ret_val;
+```
+
+遍历所有声明，递归处理
+
+**`decl->accept(*this)`**：每个声明节点（如 `ASTVarDeclaration`）调用自己的 `accept`方法
+
+而
+
+**`CminusfBuilder`（快递员小哥）**是真正干活的快递员，按照公司规范实际操作:
+
+1. 拿到`ASTProgram`包裹后，先看《手册》找到对应规则
+2. 打开包裹发现里面还有小包裹（变量/函数声明）
+3. 对每个小包裹说："请按照你自己的类型告诉我该怎么拆你"（调用`accept`）
+
+**类比快递系统：**
+
+|      组件      |     快递比喻     |   关键方法    |      在哪实现       |
+| :------------: | :--------------: | :-----------: | :-----------------: |
+|    ASTNode     |     快递包裹     |    accept     | 每个节点类单独实现  |
+|   ASTVisitor   | 《快递处理手册》 | visit（声明） |     接口不实现      |
+| CminusfBuilder |   真正的快递员   | visit（实现） | cminusf_builder.cpp |
+
+
+
+以上内容皆是编译器后端 **IR生成阶段**：核心任务是将 **AST转换为LLVM IR**
+
+|       组件       |                          专业职责                           |
+| :--------------: | :---------------------------------------------------------: |
+|   `ASTVisitor`   |    定义IR生成的抽象接口（纯虚函数），连接访问者和AST节点    |
+| `CminusfBuilder` |           具体访问者，实现AST到LLVM IR的转换规则            |
+|  `IRBuilder<>`   | LLVM提供的指令生成工具（创建`alloca`/`store`/`load`等指令） |
+|     `Module`     |          LLVM顶层容器，管理全局变量、函数等IR实体           |
+
+ 1.**双重分发（Double Dispatch）**实现 **AST节点类型 × 访问者类型** 的双重动态绑定
+
+```c++
+// AST节点侧
+Value* ASTVarDeclaration::accept(ASTVisitor &v) {
+    return v.visit(*this); // 第一次分发：根据AST节点类型
+}
+
+// 访问者侧
+Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
+    // 第二次分发：根据访问者类型
+    return builder->CreateAlloca(convertType(node.type)); 
+}
+```
+
+2.**类型转换规则**
+
+```c++
+Type* CminusfBuilder::convertType(CminusType type) {
+    switch(type) {
+        case TYPE_INT: return INT32_T;
+        case TYPE_FLOAT: return FLOAT_T;
+        // ... 其他类型转换
+    }
+}
+```
+
+3.**作用域管理** 通过 `alloca`+ `load/store`实现变量覆盖等
+
+```c++
+void CminusfBuilder::visit(ASTFunDeclaration &node) {
+    scope.enter(); // 进入函数作用域
+    // 处理参数和函数体
+    scope.exit();  // 退出作用域
+}
+```
+
+
+
+### 3.3 具体实现
+
+`CminusfBuilder` 类使用成员 `context` 存储翻译时状态，下列代码片段是 `context` 的定义，学生需要为该结构体添加更多域来存储翻译时的状态，接下来需要完成cminusf_builder.hpp
+
+具体visit行为则需要完成cminusf_builder.cpp
