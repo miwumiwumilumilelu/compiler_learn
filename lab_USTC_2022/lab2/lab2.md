@@ -1,5 +1,4 @@
-> # _lab2 Light IR C++中间代码生成
->
+# _lab2 Light IR C++中间代码生成
 
 ## 1. Light IR 预热
 
@@ -1715,3 +1714,304 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 `CminusfBuilder` 类使用成员 `context` 存储翻译时状态，下列代码片段是 `context` 的定义，学生需要为该结构体添加更多域来存储翻译时的状态，接下来需要完成cminusf_builder.hpp
 
 具体visit行为则需要完成cminusf_builder.cpp
+
+
+
+* #### **cminusf_builder.cpp**
+
+  `cminusf_builder.cpp` 中的行为需要根据 `ast.hpp` 中定义的 AST 结构体和**cminusf提供的语法规则**进行修改和实现。
+
+  
+
+  * **ASTNum**
+
+    `ASTNum` 结构体的 `accept` 方法会调用 `ASTVisitor`，而 `ASTVisitor` 的实现需要根据 `ASTNum` 的 `type` 和具体的值（`i_val` 或 `f_val`）生成对应的 IR
+
+    ```cpp
+    // ast.hpp
+    struct ASTNode {
+        virtual Value *accept(ASTVisitor &) = 0;
+        virtual ~ASTNode() = default;
+    };
+    
+    struct ASTFactor : ASTNode {
+        virtual ~ASTFactor() = default;
+    };
+    
+    struct ASTNum : ASTFactor {
+        virtual Value *accept(ASTVisitor &) override final;
+        CminusType type;
+        union {
+            int i_val;
+            float f_val;
+        };
+    };
+    ```
+
+    定义了type，有两个lei'x
+
+    ```cpp
+    Value* CminusfBuilder::visit(ASTNum &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        if (node.type == TYPE_INT) {
+            return CONST_INT(node.value);
+        }
+        else if (node.type == TYPE_FLOAT) {
+            return CONST_FP(node.value);
+        }
+        else {
+            assert(false && "Unknown type in ASTNum");
+            return nullptr;
+        }
+    }
+    ```
+
+  
+
+  * **ASTVarDeclaration**
+
+    ```cpp
+    // ast.hpp
+    struct ASTDeclaration : ASTNode {
+        virtual ~ASTDeclaration() = default;
+        CminusType type;
+        std::string id;
+    };
+    
+    struct ASTVarDeclaration : ASTDeclaration {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTNum> num;
+    };
+    ```
+
+    `std::shared_ptr<ASTNum> num;`	ASTNum类型指针，表示变量的维度信息
+
+    ` CminusType type;`
+
+    ` std::string id;`
+    接下来根据语法规则：
+
+    > var-declaration →type-specifier **ID** **;** ∣ type-specifier **ID** **[** **INTEGER** **]** ;
+    >
+    > type-specifier→**int** ∣ **float** ∣ **void**
+
+    所以需要先判断变量类型，先看是数组变量还是普通变量，再看是什么类型
+
+    其中需要注意到数组变量的类型选取`type = ArrayType::get(INT32_T, node.num->i_val);`
+
+    `ArrayType::get` 是 LLVM 提供的一个静态方法，用于创建数组类型。它接受两个参数:**元素类型**和**数组大小**
+
+    这里的i_val在ast.hpp中的结构体中明确给出
+
+    ```cpp
+    union {
+       int i_val;
+       float f_val;
+    };
+    ```
+
+    除此之外，我们需要考虑定义的变量是全局变量吗，它的生命周期
+
+    - 全局变量需要在 LLVM IR 中声明为 `GlobalVariable`，它们在程序的整个生命周期内都存在。局部变量需要使用 `alloca` 指令分配在栈上，生命周期仅限于当前函数。
+    - 而LLVM IR 是编译器的中间表示，必须准确反映变量的作用域和存储方式；因此需要管理scope作用域，方便变量的查找和使用
+
+    - 使用 `scope.in_global()` 方法判断当前变量是否在全局作用域中；
+    - 全局变量调用 `GlobalVariable::create`，并初始化为零值，局部变量调用 `builder->create_alloca`，在栈上分配内存
+    - 调用 `scope.push(node.id, varAlloca)` 将变量存储到作用域中
+
+    
+
+    **全局变量跳转GlobalVariable定义查看参数设置:**
+
+    `  GlobalVariable(std::string name, Module m, Type ty, bool is_const, Constant init = nullptr);`
+
+    ```cpp
+        static GlobalVariable *create(std::string name, Module *m, Type *ty,
+                                      bool is_const, Constant *init);
+    ```
+
+    `node.id` 的值是在语法分析阶段解析源代码时确定的，所以不需要也不能显示修改。
+
+    `static ConstantZero *get(Type ty, Module m)` 表示0初始化 ——>	`ConstantZero::get(type, module.get())`
+
+    
+
+    **局部变量跳转create_alloca定义查看参数设置:**
+
+    ```cpp
+        AllocaInst *create_alloca(Type *ty) {
+            return AllocaInst::create_alloca(ty, this->BB_);
+        }
+    ```
+
+    只需要type即可
+
+    
+
+    ```cpp
+    Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        Type *type;
+        Value *varAlloca;
+        if(node.num == nullptr) {
+            if (node.type == TYPE_INT) {
+                type = INT32_T;
+            }
+            else {
+                type = FLOAT_T;
+            }
+        }
+        else {
+            if (node.type == TYPE_INT) {
+                type = ArrayType::get(INT32_T, node.num->i_val);
+            }
+            else {
+                type = ArrayType::get(FLOAT_T, node.num->i_val);
+            }
+        }
+        
+        if (scope.in_global) {
+            varAlloca = GlobalVariable::create(node.id, module.get(), type, false, ConstantZero::get(type, module.get()));
+        }
+        else {
+            varAlloca = builder->create_alloca(type);
+        }
+        scope.push(node.id, varAlloca);
+    }
+    ```
+
+    
+
+  * **ASTFunDeclaration**
+
+    > fun-declaration→type-specifier **ID** **(** params **)** compound-stmt
+    >
+    > type-specifier→**int** ∣ **float** ∣ **void**
+    >
+    > params→param-list ∣ **void**
+    >
+    > param-list→param-list **,** param ∣ param
+    >
+    > param→type-specifier **ID** ∣ type-specifier **ID** **[** **]**
+    >
+    > ...
+  
+    
+  
+    看todo部分为**`param_types` 的处理**
+  
+    `std::vector<Type *> param_types;`，用于存储函数参数的类型。根据 Cminusf 的语法规则，函数参数可以是以下几种形式：
+  
+    - `int ID`
+    - `float ID`
+    - `int ID[]`
+    - `float ID[]`
+  
+    ```c++
+    // ast.hpp
+    struct ASTFunDeclaration : ASTDeclaration {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::vector<std::shared_ptr<ASTParam>> params;
+        std::shared_ptr<ASTCompoundStmt> compound_stmt;
+    };
+    ```
+  
+    这里只用关注params，**跳转到ASTParam定义**
+  
+    ```cpp
+    struct ASTParam : ASTNode {
+        virtual Value *accept(ASTVisitor &) override final;
+        CminusType type;
+        std::string id;
+        // true if it is array param
+        bool isarray;
+    };
+    ```
+  
+    可以看到这里有`isarray`来判断是否是数组，Ok，接下来开始码
+  
+    
+  
+    需要完成的部分是：
+  
+    - 遍历 `node.params`，根据参数的类型和是否是数组，生成对应的 LLVM IR 类型（如 `INT32_T` 或 `FLOAT_T`）
+  
+    ```cpp
+    // types
+    Type *VOID_T;
+    Type *INT1_T;
+    Type *INT32_T;
+    Type *INT32PTR_T;
+    Type *FLOAT_T;
+    Type *FLOATPTR_T
+    ```
+  
+    ```cpp
+        for (auto &param : node.params) {
+            // TODO: Please accomplish param_types.
+            if (param->type == TYPE_INT) {
+                if (param->isarray) {
+                    param_types.push_back(INT32PTR_T);
+                }
+                else {
+                    param_types.push_back(INT32_T);
+                }
+            }
+            else {
+                if (param->isarray) {
+                    param_types.push_back(FLOATPTR_T);
+                }
+                else {
+                    param_types.push_back(FLOAT_T);
+                }
+            }
+        }
+    ```
+  
+    - 将生成的类型添加到 `param_types` 中后，将其加入到新作用域
+  
+      `for (int i = 0; i < *node*.params.size(); ++i) `遍历函数的参数列表，里面有数组有浮点等，所以需要判断
+  
+      然后为这个参数分配一个栈空间，也就是局部变量在新函数作用域中
+  
+      ```c++
+      for (int i = 0; i < node.params.size(); ++i) {
+              // TODO: You need to deal with params and store them in the scope.
+              Type *type;
+              if (node.params[i]->type == TYPE_INT) {
+                  if (node.params[i]->isarray) {
+                      type = INT32PTR_T;
+                  }
+                  else {
+                      type = INT32_T;
+                  }
+              }
+              else {
+                  if (node.params[i]->isarray) {
+                      type = FLOATPTR_T;
+                  }
+                  else {
+                      type = FLOAT_T;
+                  }
+              }
+              // 分布到新作用域栈上,分配一个局部变量，用于存储函数参数
+              auto arg_Alloca = builder->create_alloca(type);
+              builder->create_store(args[i],arg_Alloca);
+              scope.push(node.params[i]->id,arg_Alloca);
+          }
+      ```
+  
+      todo部分即完成！
+  
+      
+  
+  * **ASTParam**
+  
+  * **ASTCompoundStm**
+
+
+
+
+
