@@ -86,11 +86,11 @@ int main() {
 
   * <result> = load <type>,<ptr-type><ptr>
   * 计算需先访存，内存 → 寄存器，load；计算后写回内存，寄存器 → 内存，store
-  
+
   **`i32`**：        要加载的数据类型
-  
+
   **`i32* %a0_ptr`**：          源指针（指向 `i32`类型的内存地址）
-  
+
   **`%a0_val`**：           存储加载结果的变量。
 
 ```c
@@ -875,9 +875,9 @@ attributes #0 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-l
 >
 > ├── Global Variables
 >
->  │   	├── @f = global float 3.14
+> │   	├── @f = global float 3.14
 >
->  │   	└── @i = global i32 0
+> │   	└── @i = global i32 0
 >
 > ├── Function (@main)
 >
@@ -1045,10 +1045,10 @@ class CalcASTVisitor {
 - 表达式 `1 + 2 * 3`的AST中，乘法（`*`）优先级高于加法（`+`），因此 `2 * 3`会作为子树的右节点嵌套在加法节点下，形成层级更深的子树
 
 > (+)
->   ├── 1 
->   └── (*) 
->         ├── 2 
->         └── 3
+> ├── 1 
+> └── (*) 
+>      ├── 2 
+>      └── 3
 
 
 
@@ -1116,19 +1116,19 @@ class CalcASTVisitor {
 
 > CalcASTInput
 > └── CalcASTExpression (OP_MUL)
->     ├── CalcASTTerm (左操作数: 括号表达式)
->     │   └── CalcASTFactor
->     │       └── CalcASTExpression (OP_PLUS)
->     │           ├── CalcASTTerm (左项: 1)
->     │           │   └── CalcASTFactor
->     │           │       └── CalcASTNum(val=1)
->     │           ├── OP_PLUS
->     │           └── CalcASTTerm (右项: 2)
->     │               └── CalcASTFactor
->     │                   └── CalcASTNum(val=2)
->     ├── OP_MUL
->     └── CalcASTFactor (右因子: 3)
->         └── CalcASTNum(val=3)
+>  ├── CalcASTTerm (左操作数: 括号表达式)
+>  │   └── CalcASTFactor
+>  │       └── CalcASTExpression (OP_PLUS)
+>  │           ├── CalcASTTerm (左项: 1)
+>  │           │   └── CalcASTFactor
+>  │           │       └── CalcASTNum(val=1)
+>  │           ├── OP_PLUS
+>  │           └── CalcASTTerm (右项: 2)
+>  │               └── CalcASTFactor
+>  │                   └── CalcASTNum(val=2)
+>  ├── OP_MUL
+>  └── CalcASTFactor (右因子: 3)
+>      └── CalcASTNum(val=3)
 
 
 
@@ -1232,12 +1232,12 @@ void visit(CalcASTNum &node) {
 即无需统一管理加减（低优先级）和乘除（高优先级）的运算顺序
 
 > CalcASTInput
->   └── CalcASTTerm (OP_MUL)
->        ├── CalcASTFactor (括号表达式)
->        │    └── CalcASTExpression (OP_PLUS)
->        │         ├── CalcASTTerm → CalcASTNum(1)
->        │         └── CalcASTTerm → CalcASTNum(2)
->        └── CalcASTFactor → CalcASTNum(3)
+> └── CalcASTTerm (OP_MUL)
+>     ├── CalcASTFactor (括号表达式)
+>     │    └── CalcASTExpression (OP_PLUS)
+>     │         ├── CalcASTTerm → CalcASTNum(1)
+>     │         └── CalcASTTerm → CalcASTNum(2)
+>     └── CalcASTFactor → CalcASTNum(3)
 
 1. **IR生成步骤**：
 
@@ -1263,10 +1263,10 @@ void visit(CalcASTNum &node) {
 
 > CalcASTInput
 > └── CalcASTExpression (OP_MINUS)
->     ├── CalcASTExpression (OP_PLUS)  // 左子树：1+2
->     │   ├── CalcASTTerm → CalcASTNum(1)
->     │   └── CalcASTTerm → CalcASTNum(2)
->     └── CalcASTTerm → CalcASTNum(3)  // 右操作数
+>  ├── CalcASTExpression (OP_PLUS)  // 左子树：1+2
+>  │   ├── CalcASTTerm → CalcASTNum(1)
+>  │   └── CalcASTTerm → CalcASTNum(2)
+>  └── CalcASTTerm → CalcASTNum(3)  // 右操作数
 
 1. **IR 生成步骤**：
 
@@ -1309,20 +1309,20 @@ void visit(CalcASTNum &node) {
 
    > CalcASTInput [1] 
    > └── CalcASTExpression [2] 
-   >     └── CalcASTTerm [3] (op = OP_DIV) 
-   >         ├── CalcASTTerm [4] (op = OP_MUL) 
-   >         │   ├── CalcASTFactor [5] 
-   >         │   │   └── CalcASTNum [6] (val = 4) 
-   >         │   └── CalcASTFactor [7] 
-   >         │       └── CalcASTExpression [8] (op = OP_MINUS)  // 括号内整体表达式
-   >         │           ├── CalcASTExpression [9] (op = OP_PLUS)  // 左操作数：8+4
-   >         │           │   ├── CalcASTTerm [10] 
-   >         │           │   │   └── CalcASTFactor [11] 
-   >         │           │   │       └── CalcASTNum [12] (val = 8) 
-   >         │           │   └── CalcASTTerm [13] 
-   >         │           │       └── CalcASTFactor [14] 
-   >         │           │           └── CalcASTNum [15] (val = 4) 
-   >         │           └── CalcASTTerm [16]  // 右操作数：1
+   >  └── CalcASTTerm [3] (op = OP_DIV) 
+   >      ├── CalcASTTerm [4] (op = OP_MUL) 
+   >      │   ├── CalcASTFactor [5] 
+   >      │   │   └── CalcASTNum [6] (val = 4) 
+   >      │   └── CalcASTFactor [7] 
+   >      │       └── CalcASTExpression [8] (op = OP_MINUS)  // 括号内整体表达式
+   >      │           ├── CalcASTExpression [9] (op = OP_PLUS)  // 左操作数：8+4
+   >      │           │   ├── CalcASTTerm [10] 
+   >      │           │   │   └── CalcASTFactor [11] 
+   >      │           │   │       └── CalcASTNum [12] (val = 8) 
+   >      │           │   └── CalcASTTerm [13] 
+   >      │           │       └── CalcASTFactor [14] 
+   >      │           │           └── CalcASTNum [15] (val = 4) 
+   >      │           └── CalcASTTerm [16]  // 右操作数：1
    >
    > ​        │               └── CalcASTFactor [17] 
    > ​        │                   └── CalcASTNum [18] (val = 1)
@@ -1353,20 +1353,27 @@ void visit(CalcASTNum &node) {
 
    `1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20`
 
-1. **入口与根节点**
+2. **入口与根节点**
+
    - 访问 `CalcASTInput [1]`→ 进入其子节点 `CalcASTExpression [2]`
    - 访问 `CalcASTExpression [2]`→ 调用其子项 `CalcASTTerm [3]`（除法操作）
-2. **除法左子树（乘法）**
+
+3. **除法左子树（乘法）**
+
    - 访问 `CalcASTTerm [3]`（除法）→ 优先访问左操作数 `CalcASTTerm [4]`（乘法操作）
      - 访问乘法左因子 `CalcASTFactor [5]`→ 进入其子节点 `CalcASTNum [6]`（值 `4`）
      - 访问乘法右因子 `CalcASTFactor [7]`（括号表达式）→ 进入其子节点 `CalcASTExpression [8]`
-3. **括号内表达式（加减法）**
+
+4. **括号内表达式（加减法）**
+
    - 访问 `CalcASTExpression [8]`（括号内整体表达式）→ 先访问左子树 `CalcASTExpression [9]`（加法）
      - 访问加法左项 `CalcASTTerm [10]`→ 因子 `CalcASTFactor [11]`→ 数字 `CalcASTNum [12]`（值 `8`）
      - 访问加法右项 `CalcASTTerm [13]`→ 因子 `CalcASTFactor [14]`→ 数字 `CalcASTNum [15]`（值 `4`）
    - 访问 `CalcASTExpression [8]`的右子树 `CalcASTTerm [16]`（减法右操作数）
      - 访问 `CalcASTTerm [16]`→ 因子 `CalcASTFactor [17]`→ 数字 `CalcASTNum [18]`（值 `1`）
-4. **除法右子树（数字）**
+
+5. **除法右子树（数字）**
+
    - 回溯到除法节点 `[3]`→ 访问右操作数 `CalcASTFactor [19]`→ 数字 `CalcASTNum [20]`（值 `2`）
 
 
@@ -1717,6 +1724,49 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
 
 
+* #### **cminusf_builder.hpp**
+
+```c++
+    struct {
+        // function that is being built
+        Function *func = nullptr;
+        // TODO: you should add more fields to store state
+        Value *Num = nullptr;
+        Type *ParaType = nullptr;
+        CminusType NumType = TYPE_VOID;
+        Value *varAddr = nullptr;
+        std::string param_id; 
+        int count =0;
+        int INTEGER=0;
+    } context;
+```
+
+
+
+**字段解析**
+
+1. **`std::string param_id`**:
+   - 用于存储当前参数的标识符（名称）
+   - 在处理函数参数时，记录参数的名称以便后续使用
+2. **`int count`**:
+   - 用于计数
+3. **`int INTEGER`**:
+   - 用于存储当前整数值
+   - 在数组声明时，记录数组的大小
+
+|    成员    |     类型     |                作用                |
+| :--------: | :----------: | :--------------------------------: |
+| `NumType`  | `CminusType` |   保存当前操作/表达式的类型信息    |
+|   `Num`    |   `Value*`   | 保存当前操作/表达式的值（IR 表示） |
+| `varAddr`  |   `Value*`   |         保存变量访问的地址         |
+| `ParaType` |   `Type*`    |            保存参数类型            |
+
+
+
+
+
+
+
 * #### **cminusf_builder.cpp**
 
   `cminusf_builder.cpp` 中的行为需要根据 `ast.hpp` 中定义的 AST 结构体和**cminusf提供的语法规则**进行修改和实现。
@@ -1748,22 +1798,26 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     };
     ```
 
-    定义了type，有两个lei'x
+    定义了type
 
     ```cpp
     Value* CminusfBuilder::visit(ASTNum &node) {
         // TODO: This function is empty now.
         // Add some code here.
         if (node.type == TYPE_INT) {
-            return CONST_INT(node.value);
+            context.NumType = TYPE_INT;
+            context.Num = CONST_INT(node.i_val);
+            context.INTEGER = node.i_val;
         }
         else if (node.type == TYPE_FLOAT) {
-            return CONST_FP(node.value);
+            context.NumType = TYPE_FLOAT;
+            context.Num = CONST_FP(node.f_val);
         }
         else {
-            assert(false && "Unknown type in ASTNum");
-            return nullptr;
+            context.NumType = TYPE_VOID;
+            context.Num = nullptr;
         }
+        return nullptr;
     }
     ```
 
@@ -1796,20 +1850,7 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     >
     > type-specifier→**int** ∣ **float** ∣ **void**
 
-    所以需要先判断变量类型，先看是数组变量还是普通变量，再看是什么类型
-
-    其中需要注意到数组变量的类型选取`type = ArrayType::get(INT32_T, node.num->i_val);`
-
-    `ArrayType::get` 是 LLVM 提供的一个静态方法，用于创建数组类型。它接受两个参数:**元素类型**和**数组大小**
-
-    这里的i_val在ast.hpp中的结构体中明确给出
-
-    ```cpp
-    union {
-       int i_val;
-       float f_val;
-    };
-    ```
+    所以需要判断变量和类型
 
     除此之外，我们需要考虑定义的变量是全局变量吗，它的生命周期
 
@@ -1817,8 +1858,10 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     - 而LLVM IR 是编译器的中间表示，必须准确反映变量的作用域和存储方式；因此需要管理scope作用域，方便变量的查找和使用
 
     - 使用 `scope.in_global()` 方法判断当前变量是否在全局作用域中；
-    - 全局变量调用 `GlobalVariable::create`，并初始化为零值，局部变量调用 `builder->create_alloca`，在栈上分配内存
+    - 全局变量调用 `GlobalVariable::create`，(全局内存)并初始化为零值，局部变量调用 `builder->create_alloca`，在栈上分配内存
     - 调用 `scope.push(node.id, varAlloca)` 将变量存储到作用域中
+
+    
 
     
 
@@ -1835,8 +1878,6 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
     `static ConstantZero *get(Type ty, Module m)` 表示0初始化 ——>	`ConstantZero::get(type, module.get())`
 
-    
-
     **局部变量跳转create_alloca定义查看参数设置:**
 
     ```cpp
@@ -1849,40 +1890,171 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
     
 
+    
+
+    流程如下：
+
+    * 首先根据`node.type`判断变量的类型：
+
+      ​	如果是 `TYPE_INT`，将类型设置为 `INT32_T`；如果是 `TYPE_FLOAT`，将类型设置为 `FLOAT_T`
+
+    * 使用 `scope.in_global()` 判断当前是否在全局作用域:
+
+      ```cpp
+      if (not scope.in_global())
+      {
+          // 局部作用域处理
+      }
+      else
+      {
+          // 全局作用域处理
+      }
+      ```
+
+    * 局部:
+
+      **判断是否是数组声明**：
+
+      - 如果`node.num == nullptr`，说明不是数组：
+
+        创建一个普通变量的局部分配（`create_alloca`）,将变量加入作用域（`scope.push`）
+
+      - 如果`node.num != nullptr`，说明是数组：
+
+        ​	调用 `node.num->accept(*this)` 计算数组大小。
+
+        ​	如果数组大小 `context.INTEGER <= 0`，调用异常处理函数 `neg_idx_except`。
+
+        ​	创建数组类型（`ArrayType::get`）并分配内存（`create_alloca`），最后加入作用域
+
+        ​		【`ArrayType::get(tp, context.INTEGER)` 是一个静态方法，用于生成一个数组类型对象】
+
+        **此处用`context.INTEGER`而不是`context.Num`：因为 context.Num是IR 表示，value* 类型，用于数组索引**
+
+    * 全局同理
+
+    
+
+    
+
     ```cpp
     Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
         // TODO: This function is empty now.
         // Add some code here.
-        Type *type;
-        Value *varAlloca;
-        if(node.num == nullptr) {
-            if (node.type == TYPE_INT) {
-                type = INT32_T;
+        Type *tp = nullptr;
+        if (node.type == TYPE_INT)
+        {
+            tp = INT32_T;
+        }
+        else if (node.type == TYPE_FLOAT)
+        {
+            tp = FLOAT_T;
+        }
+        if (not scope.in_global())
+        {
+            if (node.num == nullptr)
+            {
+    
+                auto Alloca = (tp != nullptr) ? builder->create_alloca(tp) : nullptr;
+                scope.push(node.id, Alloca);
             }
-            else {
-                type = FLOAT_T;
+            else
+            {
+                node.num->accept(*this);
+                if (context.INTEGER <= 0)
+                    builder->create_call(scope.find("neg_idx_except"), std::vector<Value *>{});
+                auto arrytype = ArrayType::get(tp, context.INTEGER);
+                auto arryAllca = builder->create_alloca(arrytype);
+                scope.push(node.id, arryAllca);
             }
         }
-        else {
-            if (node.type == TYPE_INT) {
-                type = ArrayType::get(INT32_T, node.num->i_val);
+        else
+        {
+            auto initializer = ConstantZero::get(INT32_T, builder->get_module());
+            if (node.num == nullptr)
+            {
+    
+                auto Alloca = (tp != nullptr) ? GlobalVariable::create(node.id, builder->get_module(), tp, false, initializer) : nullptr;
+                scope.push(node.id, Alloca);
             }
-            else {
-                type = ArrayType::get(FLOAT_T, node.num->i_val);
+            else
+            {
+                node.num->accept(*this);
+                if (context.INTEGER <= 0)
+                    builder->create_call(scope.find("neg_idx_except"), std::vector<Value *>{});
+                auto arrytype = ArrayType::get(tp, context.INTEGER);
+                auto arryAllca = GlobalVariable::create(node.id, builder->get_module(), arrytype, false, initializer);
+                scope.push(node.id, arryAllca);
             }
         }
-        
-        if (scope.in_global) {
-            varAlloca = GlobalVariable::create(node.id, module.get(), type, false, ConstantZero::get(type, module.get()));
-        }
-        else {
-            varAlloca = builder->create_alloca(type);
-        }
-        scope.push(node.id, varAlloca);
+        return nullptr;
     }
     ```
 
     
+
+  * **ASTParam**
+
+    ```cpp
+    struct ASTParam : ASTNode {
+        virtual Value *accept(ASTVisitor &) override final;
+        CminusType type;
+        std::string id;
+        // true if it is array param
+        bool isarray;
+    };
+    ```
+
+    `isarray`判断数组
+
+    再看语法:
+
+    > param→type-specifier **ID** ∣ type-specifier **ID** **[** **]**
+
+    ```cpp
+    Value* CminusfBuilder::visit(ASTParam &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+         context.param_id=node.id;
+        if (node.isarray)
+        {
+            if (node.type == TYPE_INT)
+            {
+                context.ParaType = PointerType::get(INT32_T);
+            }
+            else if (node.type == TYPE_FLOAT)
+            {
+                context.ParaType = PointerType::get(FLOAT_T);
+            }
+            else
+            {
+                context.ParaType = PointerType::get(VOID_T);
+            }
+        }
+        else
+        {
+            if (node.type == TYPE_INT)
+            {
+                context.ParaType = INT32_T;
+            }
+            else if (node.type == TYPE_FLOAT)
+            {
+                context.ParaType = FLOAT_T;
+            }
+            else
+            {
+                context.ParaType = VOID_T;
+            }
+        }
+        return nullptr;
+    }
+    ```
+
+  `PointerType::get()`是 LLVM 中创建指针类型的方法
+
+  如：INT ——> INT *
+
+  
 
   * **ASTFunDeclaration**
 
@@ -1897,118 +2069,41 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     > param→type-specifier **ID** ∣ type-specifier **ID** **[** **]**
     >
     > ...
-  
-    
-  
-    看todo部分为**`param_types` 的处理**
-  
-    `std::vector<Type *> param_types;`，用于存储函数参数的类型。根据 Cminusf 的语法规则，函数参数可以是以下几种形式：
-  
-    - `int ID`
-    - `float ID`
-    - `int ID[]`
-    - `float ID[]`
-  
-    ```c++
-    // ast.hpp
-    struct ASTFunDeclaration : ASTDeclaration {
-        virtual Value *accept(ASTVisitor &) override final;
-        std::vector<std::shared_ptr<ASTParam>> params;
-        std::shared_ptr<ASTCompoundStmt> compound_stmt;
-    };
-    ```
-  
-    这里只用关注params，**跳转到ASTParam定义**
-  
+
+    添加向量param_id
+
     ```cpp
-    struct ASTParam : ASTNode {
-        virtual Value *accept(ASTVisitor &) override final;
-        CminusType type;
-        std::string id;
-        // true if it is array param
-        bool isarray;
-    };
+    std::vector<Type *> param_types;
+    std::vector<std::string> param_id;
     ```
-  
-    可以看到这里有`isarray`来判断是否是数组，Ok，接下来开始码
-  
-    
-  
-    需要完成的部分是：
-  
-    - 遍历 `node.params`，根据参数的类型和是否是数组，生成对应的 LLVM IR 类型（如 `INT32_T` 或 `FLOAT_T`）
-  
+
+    第一个todo，需要从每个参数节点中提取类型信息，添加到`param_types`向量中，用于构造函数签名
+
+    第二个todo，处理参数并存入作用域
+
     ```cpp
-    // types
-    Type *VOID_T;
-    Type *INT1_T;
-    Type *INT32_T;
-    Type *INT32PTR_T;
-    Type *FLOAT_T;
-    Type *FLOATPTR_T
-    ```
-  
-    ```cpp
-        for (auto &param : node.params) {
+    for (auto &param : node.params)
+        {
             // TODO: Please accomplish param_types.
-            if (param->type == TYPE_INT) {
-                if (param->isarray) {
-                    param_types.push_back(INT32PTR_T);
-                }
-                else {
-                    param_types.push_back(INT32_T);
-                }
-            }
-            else {
-                if (param->isarray) {
-                    param_types.push_back(FLOATPTR_T);
-                }
-                else {
-                    param_types.push_back(FLOAT_T);
-                }
-            }
+            param->accept(*this);
+            param_types.push_back(context.ParaType);
+            param_id.push_back(context.param_id);
+        }
+        
+        
+    for (int i = 0; i < node.params.size(); ++i)
+        {
+            // TODO: You need to deal with params and store them in the scope.
+            auto argAlloca = builder->create_alloca(args[i]->get_type());
+            builder->create_store(args[i], argAlloca);
+            scope.push(param_id[i], argAlloca);
         }
     ```
+
   
-    - 将生成的类型添加到 `param_types` 中后，将其加入到新作用域
+
   
-      `for (int i = 0; i < *node*.params.size(); ++i) `遍历函数的参数列表，里面有数组有浮点等，所以需要判断
-  
-      然后为这个参数分配一个栈空间，也就是局部变量在新函数作用域中
-  
-      ```c++
-      for (int i = 0; i < node.params.size(); ++i) {
-              // TODO: You need to deal with params and store them in the scope.
-              Type *type;
-              if (node.params[i]->type == TYPE_INT) {
-                  if (node.params[i]->isarray) {
-                      type = INT32PTR_T;
-                  }
-                  else {
-                      type = INT32_T;
-                  }
-              }
-              else {
-                  if (node.params[i]->isarray) {
-                      type = FLOATPTR_T;
-                  }
-                  else {
-                      type = FLOAT_T;
-                  }
-              }
-              // 分布到新作用域栈上,分配一个局部变量，用于存储函数参数
-              auto arg_Alloca = builder->create_alloca(type);
-              builder->create_store(args[i],arg_Alloca);
-              scope.push(node.params[i]->id,arg_Alloca);
-          }
-      ```
-  
-      todo部分即完成！
-  
-      
-  
-  * **ASTParam**
-  
+
   * **ASTCompoundStm**
 
 
