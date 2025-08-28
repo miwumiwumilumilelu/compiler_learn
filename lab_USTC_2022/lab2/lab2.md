@@ -86,11 +86,11 @@ int main() {
 
   * <result> = load <type>,<ptr-type><ptr>
   * 计算需先访存，内存 → 寄存器，load；计算后写回内存，寄存器 → 内存，store
-
+  
   **`i32`**：        要加载的数据类型
-
+  
   **`i32* %a0_ptr`**：          源指针（指向 `i32`类型的内存地址）
-
+  
   **`%a0_val`**：           存储加载结果的变量。
 
 ```c
@@ -875,9 +875,9 @@ attributes #0 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-l
 >
 > ├── Global Variables
 >
-> │   	├── @f = global float 3.14
+>  │   	├── @f = global float 3.14
 >
-> │   	└── @i = global i32 0
+>  │   	└── @i = global i32 0
 >
 > ├── Function (@main)
 >
@@ -1045,10 +1045,10 @@ class CalcASTVisitor {
 - 表达式 `1 + 2 * 3`的AST中，乘法（`*`）优先级高于加法（`+`），因此 `2 * 3`会作为子树的右节点嵌套在加法节点下，形成层级更深的子树
 
 > (+)
-> ├── 1 
-> └── (*) 
->      ├── 2 
->      └── 3
+>   ├── 1 
+>   └── (*) 
+>         ├── 2 
+>         └── 3
 
 
 
@@ -1116,19 +1116,19 @@ class CalcASTVisitor {
 
 > CalcASTInput
 > └── CalcASTExpression (OP_MUL)
->  ├── CalcASTTerm (左操作数: 括号表达式)
->  │   └── CalcASTFactor
->  │       └── CalcASTExpression (OP_PLUS)
->  │           ├── CalcASTTerm (左项: 1)
->  │           │   └── CalcASTFactor
->  │           │       └── CalcASTNum(val=1)
->  │           ├── OP_PLUS
->  │           └── CalcASTTerm (右项: 2)
->  │               └── CalcASTFactor
->  │                   └── CalcASTNum(val=2)
->  ├── OP_MUL
->  └── CalcASTFactor (右因子: 3)
->      └── CalcASTNum(val=3)
+>     ├── CalcASTTerm (左操作数: 括号表达式)
+>     │   └── CalcASTFactor
+>     │       └── CalcASTExpression (OP_PLUS)
+>     │           ├── CalcASTTerm (左项: 1)
+>     │           │   └── CalcASTFactor
+>     │           │       └── CalcASTNum(val=1)
+>     │           ├── OP_PLUS
+>     │           └── CalcASTTerm (右项: 2)
+>     │               └── CalcASTFactor
+>     │                   └── CalcASTNum(val=2)
+>     ├── OP_MUL
+>     └── CalcASTFactor (右因子: 3)
+>         └── CalcASTNum(val=3)
 
 
 
@@ -1232,12 +1232,12 @@ void visit(CalcASTNum &node) {
 即无需统一管理加减（低优先级）和乘除（高优先级）的运算顺序
 
 > CalcASTInput
-> └── CalcASTTerm (OP_MUL)
->     ├── CalcASTFactor (括号表达式)
->     │    └── CalcASTExpression (OP_PLUS)
->     │         ├── CalcASTTerm → CalcASTNum(1)
->     │         └── CalcASTTerm → CalcASTNum(2)
->     └── CalcASTFactor → CalcASTNum(3)
+>   └── CalcASTTerm (OP_MUL)
+>        ├── CalcASTFactor (括号表达式)
+>        │    └── CalcASTExpression (OP_PLUS)
+>        │         ├── CalcASTTerm → CalcASTNum(1)
+>        │         └── CalcASTTerm → CalcASTNum(2)
+>        └── CalcASTFactor → CalcASTNum(3)
 
 1. **IR生成步骤**：
 
@@ -1263,10 +1263,10 @@ void visit(CalcASTNum &node) {
 
 > CalcASTInput
 > └── CalcASTExpression (OP_MINUS)
->  ├── CalcASTExpression (OP_PLUS)  // 左子树：1+2
->  │   ├── CalcASTTerm → CalcASTNum(1)
->  │   └── CalcASTTerm → CalcASTNum(2)
->  └── CalcASTTerm → CalcASTNum(3)  // 右操作数
+>     ├── CalcASTExpression (OP_PLUS)  // 左子树：1+2
+>     │   ├── CalcASTTerm → CalcASTNum(1)
+>     │   └── CalcASTTerm → CalcASTNum(2)
+>     └── CalcASTTerm → CalcASTNum(3)  // 右操作数
 
 1. **IR 生成步骤**：
 
@@ -1309,20 +1309,20 @@ void visit(CalcASTNum &node) {
 
    > CalcASTInput [1] 
    > └── CalcASTExpression [2] 
-   >  └── CalcASTTerm [3] (op = OP_DIV) 
-   >      ├── CalcASTTerm [4] (op = OP_MUL) 
-   >      │   ├── CalcASTFactor [5] 
-   >      │   │   └── CalcASTNum [6] (val = 4) 
-   >      │   └── CalcASTFactor [7] 
-   >      │       └── CalcASTExpression [8] (op = OP_MINUS)  // 括号内整体表达式
-   >      │           ├── CalcASTExpression [9] (op = OP_PLUS)  // 左操作数：8+4
-   >      │           │   ├── CalcASTTerm [10] 
-   >      │           │   │   └── CalcASTFactor [11] 
-   >      │           │   │       └── CalcASTNum [12] (val = 8) 
-   >      │           │   └── CalcASTTerm [13] 
-   >      │           │       └── CalcASTFactor [14] 
-   >      │           │           └── CalcASTNum [15] (val = 4) 
-   >      │           └── CalcASTTerm [16]  // 右操作数：1
+   >     └── CalcASTTerm [3] (op = OP_DIV) 
+   >         ├── CalcASTTerm [4] (op = OP_MUL) 
+   >         │   ├── CalcASTFactor [5] 
+   >         │   │   └── CalcASTNum [6] (val = 4) 
+   >         │   └── CalcASTFactor [7] 
+   >         │       └── CalcASTExpression [8] (op = OP_MINUS)  // 括号内整体表达式
+   >         │           ├── CalcASTExpression [9] (op = OP_PLUS)  // 左操作数：8+4
+   >         │           │   ├── CalcASTTerm [10] 
+   >         │           │   │   └── CalcASTFactor [11] 
+   >         │           │   │       └── CalcASTNum [12] (val = 8) 
+   >         │           │   └── CalcASTTerm [13] 
+   >         │           │       └── CalcASTFactor [14] 
+   >         │           │           └── CalcASTNum [15] (val = 4) 
+   >         │           └── CalcASTTerm [16]  // 右操作数：1
    >
    > ​        │               └── CalcASTFactor [17] 
    > ​        │                   └── CalcASTNum [18] (val = 1)
@@ -1353,27 +1353,20 @@ void visit(CalcASTNum &node) {
 
    `1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19 → 20`
 
-2. **入口与根节点**
-
+1. **入口与根节点**
    - 访问 `CalcASTInput [1]`→ 进入其子节点 `CalcASTExpression [2]`
    - 访问 `CalcASTExpression [2]`→ 调用其子项 `CalcASTTerm [3]`（除法操作）
-
-3. **除法左子树（乘法）**
-
+2. **除法左子树（乘法）**
    - 访问 `CalcASTTerm [3]`（除法）→ 优先访问左操作数 `CalcASTTerm [4]`（乘法操作）
      - 访问乘法左因子 `CalcASTFactor [5]`→ 进入其子节点 `CalcASTNum [6]`（值 `4`）
      - 访问乘法右因子 `CalcASTFactor [7]`（括号表达式）→ 进入其子节点 `CalcASTExpression [8]`
-
-4. **括号内表达式（加减法）**
-
+3. **括号内表达式（加减法）**
    - 访问 `CalcASTExpression [8]`（括号内整体表达式）→ 先访问左子树 `CalcASTExpression [9]`（加法）
      - 访问加法左项 `CalcASTTerm [10]`→ 因子 `CalcASTFactor [11]`→ 数字 `CalcASTNum [12]`（值 `8`）
      - 访问加法右项 `CalcASTTerm [13]`→ 因子 `CalcASTFactor [14]`→ 数字 `CalcASTNum [15]`（值 `4`）
    - 访问 `CalcASTExpression [8]`的右子树 `CalcASTTerm [16]`（减法右操作数）
      - 访问 `CalcASTTerm [16]`→ 因子 `CalcASTFactor [17]`→ 数字 `CalcASTNum [18]`（值 `1`）
-
-5. **除法右子树（数字）**
-
+4. **除法右子树（数字）**
    - 回溯到除法节点 `[3]`→ 访问右操作数 `CalcASTFactor [19]`→ 数字 `CalcASTNum [20]`（值 `2`）
 
 
@@ -1716,11 +1709,101 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
 
 
+
+
+
+
+**双重分发举例：**
+
+
+
+**`param->accept(*this)` —— 第一次分发**
+
+
+
+​	**调用者**: `visit(ASTFunDeclaration &)`。
+
+​	**调用**: `param->accept(*this)`。
+
+- `param`: 是一个指向 `ASTParam` 对象的指针。
+- `*this`: 就是当前的 `CminusfBuilder` 对象，也就是“访问者”。
+
+​	**发生了什么**:
+
+- C++ 通过**虚函数机制 (virtual function)** 找到 `param` 指针所指向的**实际对象类型**——也就是 `ASTParam` 类。
+- 然后，它调用 `ASTParam` 类中定义的 `accept` 方法。
+
+```cpp
+// In class ASTParam ast.cpp
+Value* ASTParam::accept(ASTVisitor &visitor) {
+    // 关键在这里！
+    return visitor.visit(*this);
+}
+```
+
+根据 `param` 的**运行时类型**，决定了执行哪个类的 `accept` 方法
+
+
+
+
+
+`visitor.visit(*this)` —— 第二次分发
+
+
+
+​	**调用者**: `ASTParam::accept` 方法。
+
+​	**调用**: `visitor.visit(*this)`。
+
+- `visitor`: 就是从第一步传进来的 `CminusfBuilder` 对象。
+- `*this`: 在 `ASTParam` 类的成员函数里，`*this` 的**编译时类型**被精确地确定为 `ASTParam &`。
+
+​	**发生了什么**:
+
+- 编译器现在要选择 `visitor` (即 `CminusfBuilder` 对象) 上的 `visit` 方法来调用。
+- `CminusfBuilder` 类中有很多个重载的 `visit` 方法
+
+根据 `accept` 方法中 `this` 的**编译时类型**，决定了执行访问者（`CminusfBuilder`）的哪个 `visit` 重载版本
+
+
+
 ### 3.3 具体实现
+
+`lightir`中`IRBuilder`封装了创建llvm IR的指令细节，是生成中间IR的核心工具
+
+**——> 需要经常查看 `include/lightir/IRBuilder.hpp` 来了解它提供了哪些方法**
+
+**`context`**是在 `CminusfBuilder` 里定义的一个结构体。因为访问者模式在遍历AST时，
+
+我们使用的“访问者模式”框架，每个`visit`方法的签名都是固定的`Value* visit(ASTNode& node);`
+
+返回值 `Value*` 并不总能满足我们的需求（比如，有时我们需要传递类型信息，有时需要传递计算结果）`context` 就像一个临时“快递箱”，用于在不同的`visit`方法之间传递信息。比如，`visit(ASTNum &node)` 会把创建的常量放到 `context.Num` 中，这样它的父节点 `visit(ASTAdditiveExpression &node)` 就可以从中取出这个常量来进行加法运算
+
+**——> 需要用context作为工作台和记事本，解决AST节点间复杂的信息流转问题**
+
+
 
 `CminusfBuilder` 类使用成员 `context` 存储翻译时状态，下列代码片段是 `context` 的定义，学生需要为该结构体添加更多域来存储翻译时的状态，接下来需要完成cminusf_builder.hpp
 
 具体visit行为则需要完成cminusf_builder.cpp
+
+**变量声明 (ASTVarDeclaration)**：支持全局变量、局部变量、数组和基本类型的声明。
+
+**函数声明 (ASTFunDeclaration)**：正确处理函数签名，包括参数和返回类型。
+
+**语句 (ASTStatement)**：
+
+- **复合语句 (ASTCompoundStmt)**：正确处理作用域。
+- **选择语句 (ASTSelectionStmt)**：生成`if-else`的跳转逻辑。
+- **迭代语句 (ASTIterationStmt)**：生成`while`循环的跳转逻辑。
+- **返回语句 (ASTReturnStmt)**：处理带返回值和`void`返回的情况，并进行必要的类型转换。
+
+**表达式 (ASTExpression)**：
+
+- **赋值 (ASTAssignExpression)**：处理赋值，包括类型转换。
+- **二元运算 (ASTSimpleExpression, ASTAdditiveExpression, ASTTerm)**：支持整数和浮点数的混合运算，并进行适当的类型提升。
+- **变量引用 (ASTVar)**：支持普通变量和数组元素的访问。
+- **函数调用 (ASTCall)**：处理函数调用，包括参数的类型检查和转换。
 
 
 
@@ -1753,6 +1836,7 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 3. **`int INTEGER`**:
    - 用于存储当前整数值
    - 在数组声明时，记录数组的大小
+4. 
 
 |    成员    |     类型     |                作用                |
 | :--------: | :----------: | :--------------------------------: |
@@ -1760,7 +1844,6 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 |   `Num`    |   `Value*`   | 保存当前操作/表达式的值（IR 表示） |
 | `varAddr`  |   `Value*`   |         保存变量访问的地址         |
 | `ParaType` |   `Type*`    |            保存参数类型            |
-
 
 
 
@@ -1800,6 +1883,31 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
 
     定义了type
 
+    
+    
+    ​	**思考**: 当我们遇到一个`ASTNum`节点时，我们要做什么？
+    
+    ​	**回答**: 我们需要创建一个LLVM IR的常量。
+    
+    ​	**行动**:
+    
+    ​		判断是整数还是浮点数。
+    
+    ​		调用`ConstantInt::get()`或`ConstantFP::get()`来创建常量。
+    
+    ​		把创建好的常量存到`context`里，供其他`visit`方法使用。
+    
+    
+    
+    先定义宏
+    
+    ```cpp
+    #define CONST_FP(num) ConstantFP::get((float)num, module.get())
+    #define CONST_INT(num) ConstantInt::get(num, module.get())
+    ```
+    
+    
+    
     ```cpp
     Value* CminusfBuilder::visit(ASTNum &node) {
         // TODO: This function is empty now.
@@ -1820,6 +1928,10 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         return nullptr;
     }
     ```
+    
+    其中`INTEGER`存储，对于数组获取int值情况更便捷
+  
+  
 
   
 
@@ -1838,68 +1950,84 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         std::shared_ptr<ASTNum> num;
     };
     ```
-
+  
     `std::shared_ptr<ASTNum> num;`	ASTNum类型指针，表示变量的维度信息
-
+  
     ` CminusType type;`
-
+  
     ` std::string id;`
     接下来根据语法规则：
-
+  
     > var-declaration →type-specifier **ID** **;** ∣ type-specifier **ID** **[** **INTEGER** **]** ;
     >
     > type-specifier→**int** ∣ **float** ∣ **void**
-
+  
+    
+  
     所以需要判断变量和类型
-
+  
     除此之外，我们需要考虑定义的变量是全局变量吗，它的生命周期
-
+  
     - 全局变量需要在 LLVM IR 中声明为 `GlobalVariable`，它们在程序的整个生命周期内都存在。局部变量需要使用 `alloca` 指令分配在栈上，生命周期仅限于当前函数。
     - 而LLVM IR 是编译器的中间表示，必须准确反映变量的作用域和存储方式；因此需要管理scope作用域，方便变量的查找和使用
-
+  
     - 使用 `scope.in_global()` 方法判断当前变量是否在全局作用域中；
     - 全局变量调用 `GlobalVariable::create`，(全局内存)并初始化为零值，局部变量调用 `builder->create_alloca`，在栈上分配内存
     - 调用 `scope.push(node.id, varAlloca)` 将变量存储到作用域中
-
+  
     
-
-    
-
+  
     **全局变量跳转GlobalVariable定义查看参数设置:**
-
+  
     `  GlobalVariable(std::string name, Module m, Type ty, bool is_const, Constant init = nullptr);`
-
+  
     ```cpp
         static GlobalVariable *create(std::string name, Module *m, Type *ty,
                                       bool is_const, Constant *init);
     ```
-
+  
     `node.id` 的值是在语法分析阶段解析源代码时确定的，所以不需要也不能显示修改。
-
+  
     `static ConstantZero *get(Type ty, Module m)` 表示0初始化 ——>	`ConstantZero::get(type, module.get())`
-
+  
     **局部变量跳转create_alloca定义查看参数设置:**
-
+  
     ```cpp
         AllocaInst *create_alloca(Type *ty) {
             return AllocaInst::create_alloca(ty, this->BB_);
         }
     ```
-
+  
     只需要type即可
-
+  
     
-
+  
+    ​	**思考**: 声明一个变量意味着什么？
+  
+    ​	**回答**: 意味着需要在内存里为它分配一块空间。
+  
+    ​	**行动**:
+  
+    ​		确定变量的类型（`int`, `float`, 还是数组）。
+  
+    ​		**全局变量 vs. 局部变量**:
+  
+    ​			如果`scope.in_global()`为真，说明在所有函数之外，是全局变量。使用 `GlobalVariable::create()` 创建。
+  
+    ​			否则，是函数内的局部变量。使用 `builder->create_alloca()` 在函数的栈帧上分配空间。
+  
+    ​		把变量名和它分配到的内存地址记录到当前作用域中：`scope.push(node.id, alloc)`。
+  
     
-
-    流程如下：
-
+  
+    **流程如下：**
+  
     * 首先根据`node.type`判断变量的类型：
-
+  
       ​	如果是 `TYPE_INT`，将类型设置为 `INT32_T`；如果是 `TYPE_FLOAT`，将类型设置为 `FLOAT_T`
-
+  
     * 使用 `scope.in_global()` 判断当前是否在全局作用域:
-
+  
       ```cpp
       if (not scope.in_global())
       {
@@ -1910,33 +2038,33 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
           // 全局作用域处理
       }
       ```
-
+  
     * 局部:
-
+  
       **判断是否是数组声明**：
-
+  
       - 如果`node.num == nullptr`，说明不是数组：
-
+  
         创建一个普通变量的局部分配（`create_alloca`）,将变量加入作用域（`scope.push`）
-
+  
       - 如果`node.num != nullptr`，说明是数组：
-
+  
         ​	调用 `node.num->accept(*this)` 计算数组大小。
-
+  
         ​	如果数组大小 `context.INTEGER <= 0`，调用异常处理函数 `neg_idx_except`。
-
+  
         ​	创建数组类型（`ArrayType::get`）并分配内存（`create_alloca`），最后加入作用域
-
+  
         ​		【`ArrayType::get(tp, context.INTEGER)` 是一个静态方法，用于生成一个数组类型对象】
-
+  
         **此处用`context.INTEGER`而不是`context.Num`：因为 context.Num是IR 表示，value* 类型，用于数组索引**
-
+  
     * 全局同理
-
+  
     
-
+  
     
-
+  
     ```cpp
     Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
         // TODO: This function is empty now.
@@ -1950,11 +2078,14 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         {
             tp = FLOAT_T;
         }
+        else {
+            return nullptr;
+        }
+    
         if (not scope.in_global())
         {
             if (node.num == nullptr)
             {
-    
                 auto Alloca = (tp != nullptr) ? builder->create_alloca(tp) : nullptr;
                 scope.push(node.id, Alloca);
             }
@@ -1970,7 +2101,7 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         }
         else
         {
-            auto initializer = ConstantZero::get(INT32_T, builder->get_module());
+            auto initializer = ConstantZero::get(tp, builder->get_module());
             if (node.num == nullptr)
             {
     
@@ -1990,11 +2121,16 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         return nullptr;
     }
     ```
-
-    
-
+  
+  
+  
+  
+  
+  
+  
+  
   * **ASTParam**
-
+  
     ```cpp
     struct ASTParam : ASTNode {
         virtual Value *accept(ASTVisitor &) override final;
@@ -2004,13 +2140,40 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         bool isarray;
     };
     ```
-
+  
     `isarray`判断数组
-
+  
     再看语法:
-
+  
     > param→type-specifier **ID** ∣ type-specifier **ID** **[** **]**
-
+  
+    
+  
+    **思考**:
+  
+    - 这个函数的**核心任务**是什么？
+    - 根据我们之前在 `visit(ASTFunDeclaration &)` 中的分析，这个函数被调用时，它的上级（`visit(ASTFunDeclaration &)`）需要知道两件事：**1. 这个参数在 LLVM IR 中的具体类型是什么？** **2. 这个参数的名字是什么？** 这个函数必须把这两个信息准备好，并传递回去
+  
+    **回答**:
+  
+    - 要完成这个任务，我需要检查 `ASTParam` 节点 (`node`) 的两个关键属性：`node.type` (是 `TYPE_INT` 还是 `TYPE_FLOAT`) 和 `node.isarray` (布尔值，表示是否是数组)
+    - 根据这两个属性的组合，我可以确定出四种可能的 IR 类型
+    - 因为不能通过 `return` 返回信息，我必须将计算出的 **IR 类型**和**参数名**存入共享的 `context` 对象中，以便上级函数可以从中读取
+  
+    **行动**:
+  
+    1. **传递名字**: 不论类型是什么，参数的名字都是 `node.id`。所以，第一步就是 `context.param_id = node.id;`，将名字存入 `context`
+    2. **判断是否为数组**: `node.isarray` 是最主要的分类依据
+       - **如果是数组** (例如 `int a[]`)：在 C 语言中，数组作为函数参数时，会**退化成指向其首元素的指针**。因此，我们需要创建一个指针类型
+         - 如果 `node.type` 是 `TYPE_INT`，那么 IR 类型就是“指向 i32 的指针”，通过 `PointerType::get(INT32_T)` 创建
+         - 如果 `node.type` 是 `TYPE_FLOAT`，那么 IR 类型就是“指向 float 的指针”，通过 `PointerType::get(FLOAT_T)` 创建
+       - **如果不是数组** (例如 `int a`)：直接使用对应的基础类型
+         - 如果 `node.type` 是 `TYPE_INT`，那么 IR 类型就是 `INT32_T`
+         - 如果 `node.type` 是 `TYPE_FLOAT`，那么 IR 类型就是 `FLOAT_T`
+    3. **存储类型**: 将最终确定好的 `Type*` 对象存入 `context.ParaType` 中，完成向上级函数的信息传递 
+  
+    
+  
     ```cpp
     Value* CminusfBuilder::visit(ASTParam &node) {
         // TODO: This function is empty now.
@@ -2049,15 +2212,15 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
         return nullptr;
     }
     ```
-
-  `PointerType::get()`是 LLVM 中创建指针类型的方法
-
-  如：INT ——> INT *
-
   
-
+  `PointerType::get()`是 LLVM 中创建指针类型的方法
+  
+  如：INT ——> INT *
+  
+  
+  
   * **ASTFunDeclaration**
-
+  
     > fun-declaration→type-specifier **ID** **(** params **)** compound-stmt
     >
     > type-specifier→**int** ∣ **float** ∣ **void**
@@ -2069,18 +2232,43 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
     > param→type-specifier **ID** ∣ type-specifier **ID** **[** **]**
     >
     > ...
-
+  
     添加向量param_id
-
+  
     ```cpp
     std::vector<Type *> param_types;
     std::vector<std::string> param_id;
     ```
-
-    第一个todo，需要从每个参数节点中提取类型信息，添加到`param_types`向量中，用于构造函数签名
-
-    第二个todo，处理参数并存入作用域
-
+  
+    这里注意Type * 传递，所以需要context中的`Type *ParaType = nullptr;`存储翻译
+  
+    
+  
+    **第一个todo，需要从每个参数节点中提取类型信息，添加到`param_types`向量中，用于构造函数签名:**
+    
+    **目标是什么？** 我的目标是遍历函数的所有参数 (`node.params`)，为每一个参数确定它在 **LLVM IR 中对应的具体类型**，然后把这个类型 (`Type*`) 收集到 `param_types` 这个 vector 中。同时，我也需要记下每个参数的名字，存入 `param_id`，供后面使用。
+    
+    **如何确定每个参数的 IR 类型？**
+    
+    1. **分派任务**：参数的类型信息（是 `int` 还是 `float`？是不是数组？）都封装在 `ASTParam` 节点里。直接在当前函数里写一堆 `if-else` 来判断是不优雅的。最好的方法是遵循**访问者模式**，调用 `param->accept(*this)`，将这个具体的任务分派给 `visit(ASTParam &)` 函数去处理。
+    2. **取回信息**：在 `param->accept(*this)` 调用返回后，我们就可以确信 `context.ParaType` 中已经存放了正确的参数类型。我们只需 `param_types.push_back(context.ParaType)` 就能把它收集起来。同理，我们让 `visit(ASTParam&)` 也把参数名存入 `context.param_id`，然后在这里取回。
+    
+    
+    
+    **第二个todo，处理参数并存入作用域**
+    
+    **目标是什么？** 函数定义中的参数（如 `%a`, `%b`）是传入的**值**，它们是只读的，并且没有内存地址。但在 C/Cminusf 中，我们可以像修改局部变量一样修改参数（例如 `a = a + 1;`）。为了实现这一点，我们必须为每个参数在**函数栈帧上分配一块内存**，将传入的值**复制**进去，然后让函数体内的代码通过参数名访问这块内存。
+    
+    **具体操作步骤是什么？** 这是一个经典的三部曲，对应三条 IR 指令：
+    
+    1. **分配内存 (`alloca`)**：为第 `i` 个参数分配一块内存空间。分配多大的空间呢？当然是和这个参数的类型 (`args[i]->get_type()`) 一样大。这通过 `builder->create_alloca()` 实现。
+       - **IR 效果**: `%a_addr = alloca i32`
+    2. **存储值 (`store`)**：内存分配好了，现在是空的。我们需要把传入的参数值 `args[i]` 存到刚刚分配好的内存地址 `argAlloca` 中。这通过 `builder->create_store()` 实现。
+       - **IR 效果**: `store i32 %a, i32* %a_addr`
+    3. **注册到符号表 (`scope.push`)**：现在，参数 `a` 在函数体内的“实体”就是这个内存地址 `%a_addr`。我们必须将参数名 `param_id[i]` 和这个地址 `argAlloca` 关联起来，并存入当前作用域。这样，当函数体中出现 `a` 时，我们才能通过 `scope.find("a")` 找到它的内存地址。
+    
+    
+    
     ```cpp
     for (auto &param : node.params)
         {
@@ -2099,14 +2287,298 @@ void CminusfBuilder::visit(ASTFunDeclaration &node) {
             scope.push(param_id[i], argAlloca);
         }
     ```
-
   
-
   
-
+  
+  
+  
   * **ASTCompoundStm**
-
-
-
-
+  
+    > compound-stmt→**{** local-declarations statement-list **}**
+    >
+    > local-declarations→local-declarations var-declaration ∣ empty
+    >
+    > statement-list→statement-list statement ∣ empty
+    >
+    > statement→ expression-stmt∣ compound-stmt∣ selection-stmt∣ iteration-stmt∣ return-stmt
+  
+  ```cpp
+  struct ASTStatement : ASTNode {
+      virtual ~ASTStatement() = default;
+  };
+  
+  struct ASTCompoundStmt : ASTStatement {
+      virtual Value *accept(ASTVisitor &) override final;
+      std::vector<std::shared_ptr<ASTVarDeclaration>> local_declarations;
+      std::vector<std::shared_ptr<ASTStatement>> statement_list;
+  };
+  ```
+  
+  ```cpp
+  Value* CminusfBuilder::visit(ASTCompoundStmt &node) {
+      // TODO: This function is not complete.
+      // You may need to add some code here
+      // to deal with complex statements.
+      scope.enter();
+  
+      for (auto &decl : node.local_declarations) {
+          decl->accept(*this);
+      }
+  
+      for (auto &stmt : node.statement_list) {
+          stmt->accept(*this);
+          if (builder->get_insert_block()->is_terminated())
+              break;
+      }
+  
+      scope.exit();
+      return nullptr;
+  }
+  ```
+  
+  ​	加入`scope.enter() scope.exit()`
+  
+  ​	**思考**:
+  
+  ​		当我们遇到一个 `{...}` 代码块时，它在编程语言中意味着什么？
+  
+  ​		它意味着一个**新的、独立的作用域**。在这个代码块里声明的变量（局部变量）只在这个块内部有效。一旦程序执行离开这个		代码块，这些变量就应该被销毁，它们的名字在外部也就不再可见。
+  
+  ​		因此，`visit(ASTCompoundStmt &)` 的核心职责就是**管理作用域的生命周期**，并按顺序处理其中的内容
+  
+  ​	**回答**:
+  
+  ​		要正确地处理一个复合语句，我必须严格遵循以下流程：
+  
+  ​			**进入新作用域**：在处理这个代码块的任何内容之前，我必须先通知我的符号表管理器（`scope` 对象），我们进入了一			个新的层级。	
+  
+  ```c++
+  scope.enter();
+  ```
+  
+  ​			**处理局部变量声明**：我必须先遍历并处理所有的 `local-declarations`。这样，这些局部变量才会被注册到刚刚创建			的新作用域中，供后面的语句使用。
+  
+  ```		cpp
+      for (auto &decl : node.local_declarations) {
+          decl->accept(*this);
+      }
+  ```
+  
+  ​			**处理语句列表**：在所有局部变量都声明完毕后，我再按顺序遍历并处理 `statement-list` 中的每一条语句。
+  
+  ​			// **如果遇到 return 等终止指令，后续的语句都是死代码，必须停止生成**
+  
+  ```c++
+      for (auto &stmt : node.statement_list) {
+          stmt->accept(*this);
+          if (builder->get_insert_block()->is_terminated())
+              break;
+      }
+  ```
+  
+  ​			**退出作用域**：当这个代码块中所有的语句都处理完毕后，我必须通知符号表管理器，我们要退出当前作用域。这会自			动“销毁”所有在这个作用域中声明的变量，防止它们“泄露”到外部。
+  
+  ```c++
+  scope.exit();
+  ```
+  
+  
+  
+  
+  
+  - **ASTExpressionStmt**
+  
+    > expression-stmt→expression ; ∣ ;
+  
+    ```c++
+    struct ASTExpressionStmt : ASTStatement {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTExpression> expression;
+    };
+    ```
+  
+    检查是否存在表达式，如果不存在则返回nullptr不处理即不生成相应IR
+  
+    ```cpp
+    Value* CminusfBuilder::visit(ASTExpressionStmt &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        
+        if(node.expression != nullptr){
+            node.expression -> accept(*this);
+        }
+        
+        return nullptr;
+    }
+    ```
+  
+    
+  
+  
+  
+  
+  
+  - **ASTSelectionStmt**
+  
+    **这个函数负责处理 `if-else` 语句**
+  
+    > selection-stmt→ **if** **(** expression **)** statement
+    >
+    > ​			     ∣ **if** **(** expression **)** statement **else** statement
+  
+    `if` 语句中的表达式将被求值，若结果的值等于 0，则第二个语句执行（如果存在的话），否则第一个语句会执行
+  
+    ```c++
+    struct ASTSelectionStmt : ASTStatement {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTExpression> expression;
+        std::shared_ptr<ASTStatement> if_statement;
+        // should be nullptr if no else structure exists
+        std::shared_ptr<ASTStatement> else_statement;
+    };
+    ```
+  
+    **思考**:
+  
+    ​	**LLVM IR 中如何表达“选择”？** IR 中没有高级的 `if` 关键字。它使用更底层的部件来模拟这个行为：
+  
+    ​		**基本块 (Basic Block)**：每一段可能被执行的代码（`if` 里的代码、`else` 里的代码、`if-else` 之后汇合的代码）都需		要放在一个独立的基本块中。
+  
+    ​		**条件跳转指令 (`br`)**: 在计算完条件后，需要一条指令，根据条件的真 (`true`) 或假 (`false`)，**跳转**到不同的基本		块。
+  
+    ​		**无条件跳转指令 (`br`)**: 在 `if` 分支执行完后，需要一条指令**无条件地跳过** `else` 分支，直接到达汇合点。
+  
+    ![a flowchart for an if-else statement的图片](https://encrypted-tbn0.gstatic.com/licensed-image?q=tbn:ANd9GcQSC_OrbsN9OxuSdy-4P4FX0QfpYFrwZoy1OPh1UA4xhek5EBbfQe-4IctIpAAjHq8UJtzaTNBd42WMjKDNu6u2bQUBOEyHdZNZnT84qH06GwhmNU8)
+  
+    **回答**:
+  
+    ​	**生成计算条件的代码**：首先，处理 `if` 括号里的表达式。
+  
+    ```c++
+        if(node.expression != nullptr){
+            node.expression -> accept(*this);
+        }
+    ```
+  
+    ​	**将条件结果转为布尔值**：LLVM 的条件跳转指令需要一个 `i1` 类型（1位整数，即 `true/false`）的布尔值。而 Cminusf 的	表达式结果通常是 `i32` 或 `float`。因此，需要一个额外的比较指令（例如 `!= 0`）来完成这个转换。
+  
+    ```cpp
+        Value *cond_val = context.Num;
+        if(context.NumType == TYPE_INT){
+            cond_val = builder-> create_icmp_ne(cond_val, CONST_INT(0));
+        }
+        else if(context.NumType == TYPE_FLOAT){
+            cond_val = builder-> create_fcmp_ne(cond_val, CONST_FP(0.0));
+        }
+        else{
+            cond_val = nullptr;
+        }
+    ```
+  
+    ​	**创建基本块**：我需要为 `if` 分支（`true_bb`）、`else` 分支（`false_bb`）以及 `if-else` 结束后的汇合点（`exit_bb`）分别	创建基本块。
+  
+    ```c++
+        auto *func = context.func;
+        auto *true_bb = BasicBlock::create(module.get(), "if.true" + std::to_string(context.count++), func);
+        auto *false_bb = BasicBlock::create(module.get(), "if.false" + std::to_string(context.count++), func);
+        auto *exit_bb = BasicBlock::create(module.get(), "if.exit" + std::to_string(context.count++), func);
+    ```
+  
+    ​	**连接基本块**：使用跳转指令将这些基本块按照正确的逻辑顺序“连接”起来。
+  
+    ```c++
+        if(node.else_statement){
+            builder-> create_cond_br(cond_val, true_bb, false_bb);
+        }
+        else {
+            builder-> create_cond_br(cond_val, true_bb, exit_bb);
+        }
+    ```
+  
+    ​	**填充基本块**：递归地调用 `accept` 方法，为 `if` 和 `else` 的语句体生成代码，并填充到对应的基本块中。
+  
+    ```c++
+        builder-> set_insert_point(true_bb);
+        node.if_statement -> accept(*this);
+        if(!builder->get_insert_block()->is_terminated()){
+            builder-> create_br(exit_bb);
+        }
+    
+        if(node.else_statement){
+            builder-> set_insert_point(false_bb);
+            node.else_statement -> accept(*this);
+            if(!builder->get_insert_block()->is_terminated()){
+                builder-> create_br(exit_bb);
+            }
+        }
+        else {
+            false_bb->erase_from_parent();
+        }
+        
+        builder-> set_insert_point(exit_bb);
+    ```
+  
+    
+  
+  
+  
+  ```cpp
+  Value* CminusfBuilder::visit(ASTSelectionStmt &node) {
+      // TODO: This function is empty now.
+      // Add some code here.
+  
+      if(node.expression != nullptr){
+          node.expression -> accept(*this);
+      }
+      Value *cond_val = context.Num;
+      if(context.NumType == TYPE_INT){
+          cond_val = builder-> create_icmp_ne(cond_val, CONST_INT(0));
+      }
+      else if(context.NumType == TYPE_FLOAT){
+          cond_val = builder-> create_fcmp_ne(cond_val, CONST_FP(0.0));
+      }
+      else{
+          cond_val = nullptr;
+      }
+  
+      auto *func = context.func;
+      auto *true_bb = BasicBlock::create(module.get(), "if.true" + std::to_string(context.count++), func);
+      auto *false_bb = BasicBlock::create(module.get(), "if.false" + std::to_string(context.count++), func);
+      auto *exit_bb = BasicBlock::create(module.get(), "if.exit" + std::to_string(context.count++), func);
+  
+      if(node.else_statement){
+          builder-> create_cond_br(cond_val, true_bb, false_bb);
+      }
+      else {
+          builder-> create_cond_br(cond_val, true_bb, exit_bb);
+      }
+  
+      builder-> set_insert_point(true_bb);
+      node.if_statement -> accept(*this);
+      if(!builder->get_insert_block()->is_terminated()){
+          builder-> create_br(exit_bb);
+      }
+  
+      if(node.else_statement){
+          builder-> set_insert_point(false_bb);
+          node.else_statement -> accept(*this);
+          if(!builder->get_insert_block()->is_terminated()){
+              builder-> create_br(exit_bb);
+          }
+      }
+      else {
+          false_bb->erase_from_parent();
+      }
+      
+      builder-> set_insert_point(exit_bb);
+  
+      return nullptr;
+  }
+  ```
+  
+  `context.count++` 在这里的核心作用是**为基本块 (Basic Block) 生成独一无二的名字**
+  
+  
+  
+  - 
 

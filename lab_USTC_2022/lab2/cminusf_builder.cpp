@@ -11,7 +11,7 @@ Type *INT32PTR_T;
 Type *FLOAT_T;
 Type *FLOATPTR_T;
 
-/*
+/*  
  * use CMinusfBuilder::Scope to construct scopes
  * scope.enter: enter a new scope
  * scope.exit: exit current scope
@@ -65,6 +65,10 @@ Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
     {
         tp = FLOAT_T;
     }
+    else {
+        return nullptr;
+    }
+
     if (not scope.in_global())
     {
         if (node.num == nullptr)
@@ -84,7 +88,7 @@ Value* CminusfBuilder::visit(ASTVarDeclaration &node) {
     }
     else
     {
-        auto initializer = ConstantZero::get(INT32_T, builder->get_module());
+        auto initializer = ConstantZero::get(tp, builder->get_module());
         if (node.num == nullptr)
         {
 
@@ -195,6 +199,7 @@ Value* CminusfBuilder::visit(ASTCompoundStmt &node) {
     // TODO: This function is not complete.
     // You may need to add some code here
     // to deal with complex statements.
+    scope.enter();
 
     for (auto &decl : node.local_declarations) {
         decl->accept(*this);
@@ -205,18 +210,71 @@ Value* CminusfBuilder::visit(ASTCompoundStmt &node) {
         if (builder->get_insert_block()->is_terminated())
             break;
     }
+
+    scope.exit();
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTExpressionStmt &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    
+    if(node.expression != nullptr){
+        node.expression -> accept(*this);
+    }
+    
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTSelectionStmt &node) {
     // TODO: This function is empty now.
     // Add some code here.
+
+    if(node.expression != nullptr){
+        node.expression -> accept(*this);
+    }
+    Value *cond_val = context.Num;
+    if(context.NumType == TYPE_INT){
+        cond_val = builder-> create_icmp_ne(cond_val, CONST_INT(0));
+    }
+    else if(context.NumType == TYPE_FLOAT){
+        cond_val = builder-> create_fcmp_ne(cond_val, CONST_FP(0.0));
+    }
+    else{
+        cond_val = nullptr;
+    }
+
+    auto *func = context.func;
+    auto *true_bb = BasicBlock::create(module.get(), "if.true" + std::to_string(context.count++), func);
+    auto *false_bb = BasicBlock::create(module.get(), "if.false" + std::to_string(context.count++), func);
+    auto *exit_bb = BasicBlock::create(module.get(), "if.exit" + std::to_string(context.count++), func);
+
+    if(node.else_statement){
+        builder-> create_cond_br(cond_val, true_bb, false_bb);
+    }
+    else {
+        builder-> create_cond_br(cond_val, true_bb, exit_bb);
+    }
+
+    builder-> set_insert_point(true_bb);
+    node.if_statement -> accept(*this);
+    if(!builder->get_insert_block()->is_terminated()){
+        builder-> create_br(exit_bb);
+    }
+
+    if(node.else_statement){
+        builder-> set_insert_point(false_bb);
+        node.else_statement -> accept(*this);
+        if(!builder->get_insert_block()->is_terminated()){
+            builder-> create_br(exit_bb);
+        }
+    }
+    else {
+        false_bb->erase_from_parent();
+    }
+
+    builder-> set_insert_point(exit_bb);
+
     return nullptr;
 }
 
