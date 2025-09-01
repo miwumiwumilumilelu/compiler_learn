@@ -281,6 +281,37 @@ Value* CminusfBuilder::visit(ASTSelectionStmt &node) {
 Value* CminusfBuilder::visit(ASTIterationStmt &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    auto *func = context.func;
+    auto *cond_bb = BasicBlock::create(module.get(), "while.cond" + std::to_string(context.count++), func);
+    auto *loop_bb = BasicBlock::create(module.get(), "while.loop" + std::to_string(context.count++), func);
+    auto *exit_bb = BasicBlock::create(module.get(), "while.exit" + std::to_string(context.count++), func);
+
+    builder-> create_br(cond_bb);
+    builder-> set_insert_point(cond_bb);
+
+    if(node.expression != nullptr){
+        node.expression -> accept(*this);
+    }
+    Value *cond_val = context.Num;
+    if(context.NumType == TYPE_INT){
+        cond_val = builder-> create_icmp_ne(cond_val, CONST_INT(0));
+    }
+    else if(context.NumType == TYPE_FLOAT){
+        cond_val = builder-> create_fcmp_ne(cond_val, CONST_FP(0.0));
+    }
+    else{
+        cond_val = nullptr;
+    }
+
+    builder-> create_cond_br(cond_val, loop_bb, exit_bb);
+    builder-> set_insert_point(loop_bb);
+    node.statement -> accept(*this);
+    if(!builder->get_insert_block()->is_terminated()){
+        builder-> create_br(cond_bb);
+    }
+
+    builder-> set_insert_point(exit_bb);
+
     return nullptr;
 }
 
@@ -291,13 +322,85 @@ Value* CminusfBuilder::visit(ASTReturnStmt &node) {
     } else {
         // TODO: The given code is incomplete.
         // You need to solve other return cases (e.g. return an integer).
+        node.expression->accept(*this);
+        Value *return_val = context.Num;
+
+        Type *expected_ret_type = context.func->get_return_type();
+
+        if(expected_ret_type->is_float_type() && context.NumType == TYPE_INT){
+            return_val = builder->create_sitofp(return_val, FLOAT_T);
+            context.NumType = TYPE_FLOAT;
+        }
+        else if(expected_ret_type->is_int32_type() && context.NumType == TYPE_FLOAT){
+            return_val = builder->create_fptosi(return_val, INT32_T);
+            context.NumType = TYPE_INT;
+        }
+
+        builder->create_ret(return_val); 
     }
-    return nullptr;
+    return nullptr;  
 }
 
 Value* CminusfBuilder::visit(ASTVar &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    auto var_ptr = scope.find(node.id);
+    assert(var_ptr != nullptr && "Variable not found in the scope");
+    if(node.expression == nullptr){
+        auto pointee_type = var_ptr->get_type()->get_pointer_element_type();
+
+        if(pointee_type->is_integer_type()|| pointee_type->is_float_type()){
+            context.varAddr = var_ptr;
+            context.NumType = (pointee_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+            context.Num = builder->create_load(var_ptr);
+        }
+
+        else if(pointee_type->is_array_type()){
+            context.varAddr = builder->create_gep(var_ptr, std::vector<Value *>{CONST_INT(0), CONST_INT(0)});
+        }
+
+        else if(pointee_type->is_pointer_type()){
+            context.varAddr = builder->create_load(var_ptr);
+        }
+    }
+
+    else{
+        node.expression->accept(*this);
+        Value *idx = context.Num;
+        if(context.NumType == TYPE_FLOAT){
+            idx = builder->create_fptosi(idx, INT32_T);
+            context.NumType = TYPE_INT;
+        }
+
+        auto *func = context.func;
+        auto *check_bb = BasicBlock::create(module.get(), "arrayidx.check" + std::to_string(context.count++), func);
+        auto *error_bb = BasicBlock::create(module.get(), "arrayidx.error" + std::to_string(context.count++), func);
+
+        Value *is_non_negative = builder->create_icmp_sge(idx, CONST_INT(0)); // >=0
+        builder->create_cond_br(is_non_negative, check_bb, error_bb);
+
+        builder->set_insert_point(error_bb);
+        auto *neg_except_fun = scope.find("neg_idx_except");
+        builder->create_call(neg_except_fun, {});
+        builder->create_br(check_bb);
+        
+        builder->set_insert_point(check_bb);
+        Value *array_base_ptr;
+        auto pointee_type = var_ptr->get_type()->get_pointer_element_type();
+        if(pointee_type->is_array_type()){
+            array_base_ptr = var_ptr;
+            context.varAddr = builder->create_gep(array_base_ptr, std::vector<Value *>{CONST_INT(0), idx});
+        }
+
+        else if(pointee_type->is_pointer_type()){
+            array_base_ptr = builder->create_load(var_ptr);
+            context.varAddr = builder->create_gep(array_base_ptr, {idx});
+        }
+
+        context.Num = builder->create_load(context.varAddr);
+        auto element_type = context.varAddr->get_type()->get_pointer_element_type();
+        context.NumType = (element_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+    }
     return nullptr;
 }
 

@@ -2462,6 +2462,8 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
     ​	**将条件结果转为布尔值**：LLVM 的条件跳转指令需要一个 `i1` 类型（1位整数，即 `true/false`）的布尔值。而 Cminusf 的	表达式结果通常是 `i32` 或 `float`。因此，需要一个额外的比较指令（例如 `!= 0`）来完成这个转换。
   
+    ​	在 Cminusf 中，**任何非零值都为真** —— 因此采用与0不等来比较（ne）
+    
     ```cpp
         Value *cond_val = context.Num;
         if(context.NumType == TYPE_INT){
@@ -2476,7 +2478,7 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
     ```
   
     ​	**创建基本块**：我需要为 `if` 分支（`true_bb`）、`else` 分支（`false_bb`）以及 `if-else` 结束后的汇合点（`exit_bb`）分别	创建基本块。
-  
+    
     ```c++
         auto *func = context.func;
         auto *true_bb = BasicBlock::create(module.get(), "if.true" + std::to_string(context.count++), func);
@@ -2485,7 +2487,7 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
     ```
   
     ​	**连接基本块**：使用跳转指令将这些基本块按照正确的逻辑顺序“连接”起来。
-  
+    
     ```c++
         if(node.else_statement){
             builder-> create_cond_br(cond_val, true_bb, false_bb);
@@ -2496,7 +2498,7 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
     ```
   
     ​	**填充基本块**：递归地调用 `accept` 方法，为 `if` 和 `else` 的语句体生成代码，并填充到对应的基本块中。
-  
+    
     ```c++
         builder-> set_insert_point(true_bb);
         node.if_statement -> accept(*this);
@@ -2517,7 +2519,7 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
         
         builder-> set_insert_point(exit_bb);
     ```
-  
+    
     
   
   
@@ -2578,7 +2580,338 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   `context.count++` 在这里的核心作用是**为基本块 (Basic Block) 生成独一无二的名字**
   
+  如果没有 else 分支，我们创建的 false_bb 就没用了，可以安全地移除`erase_from_parent()`
   
   
-  - 
+  
+  
+  
+  
+  
+  - **ASTIterationStmt**
+  
+    > iteration-stmt→**while** **(** expression **)** statement
+  
+    ```cpp
+    struct ASTIterationStmt : ASTStatement {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTExpression> expression;
+        std::shared_ptr<ASTStatement> statement;
+    };
+    ```
+  
+    
+  
+    **思考**:
+  
+    - **`while` 循环的本质是什么？** 它的本质是**重复**和**条件退出**。程序需要：
+      1. 先进入一个**判断点**，计算循环条件。
+      2. 如果条件为**真**，则进入**循环体**执行代码。执行完后，必须**跳回到**第1步的判断点。
+      3. 如果条件为**假**，则**跳过**循环体，到达循环结构之后的一个**出口点**。
+    - **LLVM IR 中如何表达这种“循环”？** 这需要我们构建一个带有“向后跳转”边的控制流图。
+      - 需要一个基本块 (`cond_bb`) 来处理条件判断。
+      - 需要一个基本块 (`loop_bb`) 来存放循环体代码。
+      - 需要一个基本块 (`exit_bb`) 作为循环的出口。
+  
+    **回答**:
+  
+    - 任务就是构建上图所示的基本块流程。
+  
+    - 当前代码流应该首先无条件地跳转到 `cond_bb`，开始第一次循环判断。
+  
+    - 在 `cond_bb` 中，计算条件并生成一个条件跳转指令：如果为真，跳到 `loop_bb`；如果为假，跳到 `exit_bb`。
+  
+    - 在 `loop_bb` 中，生成循环体的代码。在代码块的最后，必须有一条**无条件跳转指令，跳回到 `cond_bb`**，这正是形成“循环”的关键一步。
+  
+    - 最后，将 IR Builder 的插入点移动到 `exit_bb`，以便后续的代码可以正确地生成在循环之后。
+  
+      
+  
+    ```c++
+    Value* CminusfBuilder::visit(ASTIterationStmt &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        auto *func = context.func;
+        auto *cond_bb = BasicBlock::create(module.get(), "while.cond" + std::to_string(context.count++), func);
+        auto *loop_bb = BasicBlock::create(module.get(), "while.loop" + std::to_string(context.count++), func);
+        auto *exit_bb = BasicBlock::create(module.get(), "while.exit" + std::to_string(context.count++), func);
+    
+        builder-> create_br(cond_bb);
+        builder-> set_insert_point(cond_bb);
+    
+        if(node.expression != nullptr){
+            node.expression -> accept(*this);
+        }
+        Value *cond_val = context.Num;
+        if(context.NumType == TYPE_INT){
+            cond_val = builder-> create_icmp_ne(cond_val, CONST_INT(0));
+        }
+        else if(context.NumType == TYPE_FLOAT){
+            cond_val = builder-> create_fcmp_ne(cond_val, CONST_FP(0.0));
+        }
+        else{
+            cond_val = nullptr;
+        }
+    
+        builder-> create_cond_br(cond_val, loop_bb, exit_bb);
+        builder-> set_insert_point(loop_bb);
+        node.statement -> accept(*this);
+        if(!builder->get_insert_block()->is_terminated()){
+            builder-> create_br(cond_bb);
+        }
+        
+        builder-> set_insert_point(exit_bb);
+    
+        return nullptr;
+    }
+    ```
+  
+  
+  
+  
+  
+  
+  
+  - **ASTReturnStmt**
+  
+    > return-stmt→**return** **;** ∣ **return** expression **;**
+  
+    ```c++
+    struct ASTReturnStmt : ASTStatement {
+        virtual Value *accept(ASTVisitor &) override final;
+        // should be nullptr if return void
+        std::shared_ptr<ASTExpression> expression;
+    };
+    ```
+  
+    
+  
+    **思考**:
+  
+    - **`return` 语句的本质是什么？** 它的本质是**终止当前函数的执行**，并可选地返回一个值。
+    - **LLVM IR 中如何表达？** IR 中有专门的 `ret` 指令。
+      - `ret void` 用于没有返回值的函数。
+      - `ret <type> <value>` 用于带返回值的函数。
+    - **需要注意什么？** **Cminusf 支持隐式类型转换!!!**。如果 `return` 语句后面表达式的类型（例如 `float`）与函数声明的返回类型（例如 `int`）不匹配，编译器需要**自动插入类型转换指令**。`return` 语句执行后，当前基本块就终止了，后续不应再有任何指令。
+  
+    **回答**:
+  
+    - 任务就是获取表达式的值，检查其类型是否与函数期望的返回类型匹配，如果不匹配就进行转换，最后生成 `ret` 指令
+    - 获取表达式的值和类型，可以通过调用 `node.expression->accept(*this)` 来完成，结果会自动存入 `context.Num` 和 `context.NumType`。
+    - 获取函数期望的返回类型，可以通过 `context.func->get_return_type()` 获得。
+    - 比较这两个类型，如果一个是 `int` 而另一个是 `float`，就需要调用 `builder` 的类型转换方法（`create_sitofp` 或 `create_fptosi`）。
+    - 最后，用最终的值（可能是转换后的值）调用 `builder->create_ret()`。
+  
+    
+  
+    ```c++
+    Value* CminusfBuilder::visit(ASTReturnStmt &node) {
+        if (node.expression == nullptr) {
+            builder->create_void_ret();
+            return nullptr;
+        } else {
+            // TODO: The given code is incomplete.
+            // You need to solve other return cases (e.g. return an integer).
+            node.expression->accept(*this);
+            Value *return_val = context.Num;
+    
+            Type *expected_ret_type = context.func->get_return_type();
+    
+            if(expected_ret_type->is_float_type() && context.NumType == TYPE_INT){
+                return_val = builder->create_sitofp(return_val, FLOAT_T);
+                context.NumType = TYPE_FLOAT;
+            }
+            else if(expected_ret_type->is_int32_type() && context.NumType == TYPE_FLOAT){
+                return_val = builder->create_fptosi(return_val, INT32_T);
+                context.NumType = TYPE_INT;
+            }
+    
+            builder->create_ret(return_val); 
+        }
+        return nullptr;  
+    }
+    ```
+  
+    
+  
+  
+  
+  
+  
+  - **ASTVar**
+  
+    `var` 可以是一个整型变量、浮点变量，或者一个取了下标的数组变量。
+  
+    数组的下标值为整型，作为数组下标值的表达式计算结果可能需要类型转换变成整型值。
+  
+    一个负的下标会导致程序终止，需要调用框架中的内置函数 `neg_idx_except`（该内部函数会主动退出程序，只需要调用该函数即可），但是对于上界并不做检查。
+  
+    赋值语义为：先找到 `var` 代表的变量地址（如果是数组，需要先对下标表达式求值），然后对右侧的表达式进行求值，求值结果将在转换成变量类型后存储在先前找到的地址中。同时，存储在 `var` 中的值将作为赋值表达式的求值结果。
+  
+    在 C 中，赋值对象（即 `var` ）必须是左值，而左值可以通过多种方式获得。Cminusf 中，唯一的左值就是通过 `var` 的语法得到的，因此 Cminusf 通过语法限制了 `var` 为左值，而不是像 C 中一样通过类型检查，这也是为什么 Cminusf 中不允许进行指针算数。
+  
+    > expression→var **=** expression ∣ simple-expression
+    >
+    > var→**ID** ∣ **ID** **[** expression**]**
+  
+    ```c++
+    struct ASTVar : ASTFactor {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::string id;
+        // nullptr if var is of int type
+        std::shared_ptr<ASTExpression> expression;
+    };
+    ```
+  
+    
+  
+    **链式调用：`auto pointee_type = var_ptr->get_type()->get_pointer_element_type();`**
+  
+    当我们声明 `int x;` 时：
+  
+    - `scope.find("x")` 找到的 `var_ptr` 是一个指向 `int` 的指针，其 LLVM IR 类型为 `i32*`。
+    - `var_ptr->get_type()` 返回 `i32*` 这个类型对象。
+    - `->get_pointer_element_type()` 在 `i32*` 的基础上，返回它指向的元素类型，也就是 `i32`。
+  
+    
+  
+    **思考**:
+  
+    - **这个函数的核心职责是什么？** 当编译器在代码中遇到一个变量（如 `x` 或 `arr[i]`）时，这个 `visit` 函数就会被调用。它的核心职责是，无论这个变量后续是被读取（用作右值）还是被写入（用作左值），它都必须提供两个关键信息：
+      1. **变量的内存地址 (L-value)**：存入 `context.varAddr`。
+      2. **变量存储的值 (R-value)**：存入 `context.Num`。
+    - **它需要处理哪些情况？** 根据语法 `var→ID ∣ ID [ expression]`，它必须处理两种主要情况：
+      1. **简单变量 (`ID`)**: `node.expression` 为 `nullptr`。
+      2. **数组元素访问 (`ID [ expression]`)**: `node.expression` 不为 `nullptr`。
+    - **还有哪些复杂性？** 变量 `ID` 本身可能是局部变量/全局变量（指向值的指针），也可能是数组（指向数组类型的指针），还可能是作为函数参数传递的数组（指向指针的指针）。这些情况在计算地址时必须被精确地区分。
+  
+    **回答**:
+  
+    - 我需要将函数体分为两个大的 `if-else` 分支，根据 `node.expression` 是否为空来区分是处理简单变量还是数组访问。
+    - **对于简单变量 (`ID`)**: 我需要从 `scope` 中找到变量的指针。然后检查这个指针指向的类型。
+      - 如果是普通类型 (`int` 或 `float`)，那么这个指针就是它的地址，我直接 `load` 它的值即可。
+      - 如果是数组类型（如 `[10 x i32]`)，这意味着代码正在使用数组名本身。根据 C 语言规则，它应该“退化”为指向数组第一个元素的指针。我需要用 `gep` 指令计算出第一个元素的地址。
+      - 如果是指针类型（如 `i32*`），这通常意味着这是一个作为函数参数传递的数组。这个变量本身存的是一个地址，我需要先 `load` 一次来获得这个地址。
+    - **对于数组元素 (`ID [ expression]`)**: 我需要严格按照语义规则执行一系列操作：
+      1. 首先，计算下标 `expression` 的值。
+      2. 如果下标是 `float`，必须将其转换为 `int`。
+      3. **检查下标是否为负**。如果是，生成调用 `neg_idx_except` 的代码。这需要创建额外的基本块来实现条件分支。
+      4. 计算数组元素的地址。这需要使用 `gep` (getelementptr) 指令。`gep` 的用法取决于数组基地址的类型。
+      5. 最后，从计算出的元素地址中 `load` 出值。
+  
+    **行动**:
+  
+    1. **分支判断**: 用 `if (node.expression == nullptr)` 分割代码逻辑。
+  
+    2. **实现简单变量分支**:
+  
+       - `auto var_ptr = scope.find(node.id)` 从符号表找到变量的指针。
+  
+         ```c++
+         auto var_ptr = scope.find(node.id);
+         assert(var_ptr != nullptr && "Variable not found in the scope");
+         ```
+  
+       - 检查 `var_ptr` 指向的类型，用 `if/else if` 处理上面讨论的普通变量、数组名、函数参数三种情况，正确地设置 `context.varAddr` 和 `context.Num`。
+  
+    3. **实现数组元素分支**:
+  
+       - 先访问下标表达式：`node.expression->accept(*this)`。
+  
+       - **实现负数检查**：
+  
+         - 创建 `check_bb` 和 `error_bb` 两个基本块。
+         - 用 `icmp sge` (Signed Greater or Equal) 指令将下标与 0 比较。
+         - 创建 `cond_br` 指令，如果 `>=0` 则跳转到 `check_bb`，否则跳转到 `error_bb`。
+         - 在 `error_bb` 中，生成对 `neg_idx_except` 的调用，然后无条件跳转到 `check_bb` 汇合。
+         - 将插入点设置到 `check_bb`。
+  
+       - **类型转换**: 如果下标是 `float`，用 `create_fptosi` 转换为 `int`。
+  
+       - **计算地址 (`gep`)**: 找到数组的基地址。根据基地址的类型（是指向数组还是指向指针），使用正确数量的索引调用 `builder->create_gep()`，计算出元素的地址，存入 `context.varAddr`。
+  
+       - **加载值 (`load`)**: 从 `context.varAddr` 中 `load` 出元素的值，存入 `context.Num`，并设置 `context.NumType`。
+  
+         
+  
+    ```c++
+    Value* CminusfBuilder::visit(ASTVar &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        auto var_ptr = scope.find(node.id);
+        assert(var_ptr != nullptr && "Variable not found in the scope");
+        if(node.expression == nullptr){
+            auto pointee_type = var_ptr->get_type()->get_pointer_element_type();
+    
+            if(pointee_type->is_integer_type()|| pointee_type->is_float_type()){
+                context.varAddr = var_ptr;
+                context.NumType = (pointee_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+                context.Num = builder->create_load(var_ptr);
+            }
+    
+            else if(pointee_type->is_array_type()){
+                context.varAddr = builder->create_gep(var_ptr, std::vector<Value *>{CONST_INT(0), CONST_INT(0)});
+            }
+    
+            else if(pointee_type->is_pointer_type()){
+                context.varAddr = builder->create_load(var_ptr);
+            }
+        }
+    
+        else{
+            node.expression->accept(*this);
+            Value *idx = context.Num;
+            if(context.NumType == TYPE_FLOAT){
+                idx = builder->create_fptosi(idx, INT32_T);
+                context.NumType = TYPE_INT;
+            }
+    
+            auto *func = context.func;
+            auto *check_bb = BasicBlock::create(module.get(), "arrayidx.check" + std::to_string(context.count++), func);
+            auto *error_bb = BasicBlock::create(module.get(), "arrayidx.error" + std::to_string(context.count++), func);
+    
+            Value *is_non_negative = builder->create_icmp_sge(idx, CONST_INT(0)); // >=0
+            builder->create_cond_br(is_non_negative, check_bb, error_bb);
+    
+            builder->set_insert_point(error_bb);
+            auto *neg_except_fun = scope.find("neg_idx_except");
+            builder->create_call(neg_except_fun, {});
+            builder->create_br(check_bb);
+            
+            builder->set_insert_point(check_bb);
+            Value *array_base_ptr;
+            auto pointee_type = var_ptr->get_type()->get_pointer_element_type();
+            if(pointee_type->is_array_type()){
+                array_base_ptr = var_ptr;
+                context.varAddr = builder->create_gep(array_base_ptr, std::vector<Value *>{CONST_INT(0), idx});
+            }
+    
+            else if(pointee_type->is_pointer_type()){
+                array_base_ptr = builder->create_load(var_ptr);
+                context.varAddr = builder->create_gep(array_base_ptr, {idx});
+            }
+    
+            context.Num = builder->create_load(context.varAddr);
+            auto element_type = context.varAddr->get_type()->get_pointer_element_type();
+            context.NumType = (element_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+        }
+        return nullptr;
+    }
+    ```
+  
+    `context.varAddr = builder->create_gep(array_base_ptr, {CONST_INT(0), index_val});`
+  
+    ​	**第一个 0 用于“穿过”最外层的指针，第二个 index_val 用于在数组内索引**
+  
+    `context.varAddr = builder->create_gep(array_base_ptr, {index_val});`
+  
+    ​	**此时基地址已经是一个简单的指针 (如 i32*)，GEP 只需要一个索引**
+  
+  
+  
+  
+  
+  
+  
+  - **ASTAssignExpression**
 
