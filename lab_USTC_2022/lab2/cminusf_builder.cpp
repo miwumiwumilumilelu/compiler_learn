@@ -407,29 +407,247 @@ Value* CminusfBuilder::visit(ASTVar &node) {
 Value* CminusfBuilder::visit(ASTAssignExpression &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    node.var->accept(*this);
+    Value *l_addr = context.varAddr;
+
+    node.expression->accept(*this);
+    Value *r_val = context.Num;
+
+    Type *l_type = l_addr->get_type()->get_pointer_element_type();
+    
+    if(l_type->is_integer_type() && context.NumType == TYPE_FLOAT){
+        r_val = builder->create_fptosi(r_val, INT32_T);
+        context.NumType = TYPE_INT;
+    }
+    else if(l_type->is_float_type() && context.NumType == TYPE_INT){
+        r_val = builder->create_sitofp(r_val, FLOAT_T);
+        context.NumType = TYPE_FLOAT;
+    }
+    
+    builder->create_store(r_val, l_addr);
+    context.Num = r_val;
+
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTSimpleExpression &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    if(node.additive_expression_r == nullptr){
+        node.additive_expression_l->accept(*this);
+        return nullptr;
+    }
+
+    node.additive_expression_l->accept(*this);
+    Value *l_val = context.Num;
+    CminusType l_type = context.NumType;
+    node.additive_expression_r->accept(*this);
+    Value *r_val = context.Num;
+    CminusType r_type = context.NumType;
+
+    Value *res_val = nullptr;
+
+    if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+        if(l_type == TYPE_INT){
+            l_val = builder->create_sitofp(l_val, FLOAT_T);
+        }
+        if(r_type == TYPE_INT){
+            r_val = builder->create_sitofp(r_val, FLOAT_T);
+        }
+
+        switch (node.op)
+        {
+        case OP_LT:
+            res_val = builder->create_fcmp_lt(l_val, r_val);
+            break;
+        case OP_LE:
+            res_val = builder->create_fcmp_le(l_val, r_val);
+            break;
+        case OP_GT:
+            res_val = builder->create_fcmp_gt(l_val, r_val);
+            break;
+        case OP_GE:
+            res_val = builder->create_fcmp_ge(l_val, r_val);
+            break;
+        case OP_EQ:
+            res_val = builder->create_fcmp_eq(l_val, r_val);
+            break;
+        case OP_NEQ:
+            res_val = builder->create_fcmp_ne(l_val, r_val);
+            break;
+        }
+    }
+    else{
+        switch (node.op)
+        {
+        case OP_LT:
+            res_val = builder->create_icmp_lt(l_val, r_val);
+            break;
+        case OP_LE:
+            res_val = builder->create_icmp_le(l_val, r_val);
+            break;
+        case OP_GT:
+            res_val = builder->create_icmp_gt(l_val, r_val);
+            break;
+        case OP_GE:
+            res_val = builder->create_icmp_ge(l_val, r_val);
+            break;
+        case OP_EQ:
+            res_val = builder->create_icmp_eq(l_val, r_val);
+            break;
+        case OP_NEQ:
+            res_val = builder->create_icmp_ne(l_val, r_val);
+            break;
+        }    
+    }
+
+    context.Num = builder->create_zext(res_val, INT32_T);
+    context.NumType = TYPE_INT;
+
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTAdditiveExpression &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    if(node.additive_expression == nullptr){
+        node.term->accept(*this);
+        return nullptr;
+    }
+
+    node.additive_expression->accept(*this);
+    Value *l_val = context.Num;
+    CminusType l_type = context.NumType;
+
+    node.term->accept(*this);
+    Value *r_val = context.Num;
+    CminusType r_type = context.NumType;
+
+    if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+        if(l_type == TYPE_INT){
+            l_val = builder->create_sitofp(l_val, FLOAT_T);
+        }
+        if(r_type == TYPE_INT){
+            r_val = builder->create_sitofp(r_val, FLOAT_T);
+        }
+
+        switch (node.op)
+        {
+        case OP_PLUS:
+            context.Num = builder->create_fadd(l_val, r_val);
+            break;
+        case OP_MINUS:
+            context.Num = builder->create_fsub(l_val, r_val);
+            break;
+        }
+        context.NumType = TYPE_FLOAT;
+    }
+    else{
+        switch (node.op)
+        {
+        case OP_PLUS:
+            context.Num = builder->create_iadd(l_val, r_val);
+            break;
+        case OP_MINUS:
+            context.Num = builder->create_isub(l_val, r_val);
+            break;
+        }
+        context.NumType = TYPE_INT;
+    }
+
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTTerm &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    if(node.term == nullptr){
+        node.factor->accept(*this);
+        return nullptr;
+    }
+
+    node.term->accept(*this);
+    Value *l_val = context.Num;
+    CminusType l_type = context.NumType;
+
+    node.factor->accept(*this);
+    Value *r_val = context.Num;
+    CminusType r_type = context.NumType;
+
+    if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+        if(l_type == TYPE_INT){
+            l_val = builder->create_sitofp(l_val, FLOAT_T);
+        }
+        if(r_type == TYPE_INT){
+            r_val = builder->create_sitofp(r_val, FLOAT_T);
+        }
+
+        switch (node.op)
+        {
+        case OP_MUL:
+            context.Num = builder->create_fmul(l_val, r_val);
+            break;
+        case OP_DIV:
+            context.Num = builder->create_fdiv(l_val, r_val);
+            break;
+        }
+        context.NumType = TYPE_FLOAT;
+    }
+
+    else{
+        switch (node.op)
+        {
+        case OP_MUL:
+            context.Num = builder->create_imul(l_val, r_val);
+            break;
+        case OP_DIV:
+            context.Num = builder->create_isdiv(l_val, r_val);
+            break;
+        }
+        context.NumType = TYPE_INT;
+    }
+
     return nullptr;
 }
 
 Value* CminusfBuilder::visit(ASTCall &node) {
     // TODO: This function is empty now.
     // Add some code here.
+    auto callee_fun = scope.find(node.id);
+    assert(callee_fun != nullptr && "Function not found in the scope");
+    auto func = static_cast<Function *>(callee_fun);
+    std::vector<Value *> args;
+
+    for(int i = 0; i < node.args.size(); ++i){
+        node.args[i]->accept(*this);
+        Value *arg_val = context.Num;
+        CminusType arg_type = context.NumType;
+
+        Type *param_type = func->get_function_type()->get_param_type(i);
+        if(param_type->is_integer_type() && arg_type == TYPE_FLOAT){
+            arg_val = builder->create_fptosi(arg_val, INT32_T);
+            context.NumType = TYPE_INT;
+        }
+        else if(param_type->is_float_type() && arg_type == TYPE_INT){
+            arg_val = builder->create_sitofp(arg_val, FLOAT_T);
+            context.NumType = TYPE_FLOAT;
+        }
+
+        args.push_back(arg_val);
+    }
+
+    context.Num = builder->create_call(func, args);
+
+    auto ret_type = func->get_return_type();
+    if(ret_type->is_integer_type()){
+        context.NumType = TYPE_INT;
+    }
+    else if(ret_type->is_float_type()){
+        context.NumType = TYPE_FLOAT;
+    }
+    else if(ret_type->is_void_type()){
+        context.NumType = TYPE_VOID;
+    }
+
     return nullptr;
 }

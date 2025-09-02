@@ -1856,10 +1856,16 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
 
   
 
+  
+
+  
+
+  
+  
   * **ASTNum**
-
+  
     `ASTNum` 结构体的 `accept` 方法会调用 `ASTVisitor`，而 `ASTVisitor` 的实现需要根据 `ASTNum` 的 `type` 和具体的值（`i_val` 或 `f_val`）生成对应的 IR
-
+  
     ```cpp
     // ast.hpp
     struct ASTNode {
@@ -1880,9 +1886,9 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
         };
     };
     ```
-
+  
     定义了type
-
+  
     
     
     ​	**思考**: 当我们遇到一个`ASTNum`节点时，我们要做什么？
@@ -1930,13 +1936,19 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
     ```
     
     其中`INTEGER`存储，对于数组获取int值情况更便捷
-  
-  
 
   
-
+  
+  
+  
+  
+  
+  
+  
+  
+  
   * **ASTVarDeclaration**
-
+  
     ```cpp
     // ast.hpp
     struct ASTDeclaration : ASTNode {
@@ -2129,6 +2141,12 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   
   
+  
+  
+  
+  
+  
+  
   * **ASTParam**
   
     ```cpp
@@ -2292,6 +2310,12 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   
   
+  
+  
+  
+  
+  
+  
   * **ASTCompoundStm**
   
     > compound-stmt→**{** local-declarations statement-list **}**
@@ -2381,6 +2405,14 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   ```c++
   scope.exit();
   ```
+  
+  
+  
+  
+  
+  
+  
+  
   
   
   
@@ -2588,6 +2620,10 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   
   
+  
+  
+  
+  
   - **ASTIterationStmt**
   
     > iteration-stmt→**while** **(** expression **)** statement
@@ -2672,6 +2708,12 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   
   
+  
+  
+  
+  
+  
+  
   - **ASTReturnStmt**
   
     > return-stmt→**return** **;** ∣ **return** expression **;**
@@ -2733,6 +2775,12 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
     ```
   
     
+  
+  
+  
+  
+  
+  
   
   
   
@@ -2913,5 +2961,532 @@ Value* ASTParam::accept(ASTVisitor &visitor) {
   
   
   
+  
+  
+  
+  
+  
+  
   - **ASTAssignExpression**
-
+  
+    > expression→var **=** expression ∣ simple-expression
+  
+    ```c++
+    struct ASTAssignExpression : ASTExpression {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTVar> var;
+        std::shared_ptr<ASTExpression> expression;
+    };
+    ```
+  
+    
+  
+    **思考**:
+  
+    - **赋值语句 `var = expression` 的本质是什么？** 它的核心是“将一个值存入一个内存位置”。这涉及到两个截然不同的操作：
+      1. **左值 (L-value)**：对于等号左边的 `var`，我们不关心它现在存的什么值，而是需要它确切的**内存地址**。
+      2. **右值 (R-value)**：对于等号右边的 `expression`，我们不关心它的地址，而是需要把它**计算出来的那个值**。
+    - **需要注意什么？**
+      - **类型转换**：如果左值（变量）的类型和右值（表达式）的类型不匹配（例如 `int a = 3.14;`），必须先将右值转换成左值的类型，然后再存入。
+      - **表达式的值**：赋值表达式本身也有一个值。在 Cminusf 中，`a = 10` 这个表达式的值就是 `10`。这允许我们写出像 `b = a = 10;` 这样的链式赋值。因此，在完成存储后，我必须把存入的那个值作为整个表达式的结果，放在 `context.Num` 中。
+  
+    **回答**:
+  
+    - 任务就是严格按照赋值语义来生成 IR 指令。
+    - 首先，需要处理等号左边的 `var`，以获取其内存地址。委托 `visit(ASTVar &)` 来完成这个任务，它会把结果放在 `context.varAddr` 中。
+    - 然后，需要处理等号右边的 `expression`，以计算出它的值。我将委托其他表达式相关的 `visit` 函数来完成，结果会放在 `context.Num` 和 `context.NumType` 中。
+    - 接下来，将比较左值变量的类型和右值表达式的类型。
+    - 如果类型不匹配，就调用 `builder` 生成相应的类型转换指令。
+    - 最后，我生成一条 `store` 指令，将最终的（可能经过转换的）右值存入左值的地址。同时，更新 `context.Num`，使其等于这个存入的值。
+  
+    
+  
+    ```c++
+    Value* CminusfBuilder::visit(ASTAssignExpression &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        node.var->accept(*this);
+        Value *l_addr = context.varAddr;
+    
+        node.expression->accept(*this);
+        Value *r_val = context.Num;
+    
+        Type *l_type = l_addr->get_type()->get_pointer_element_type();
+        
+        if(l_type->is_integer_type() && context.NumType == TYPE_FLOAT){
+            r_val = builder->create_fptosi(r_val, INT32_T);
+            context.NumType = TYPE_INT;
+        }
+        else if(l_type->is_float_type() && context.NumType == TYPE_INT){
+            r_val = builder->create_sitofp(r_val, FLOAT_T);
+            context.NumType = TYPE_FLOAT;
+        }
+        
+        builder->create_store(r_val, l_addr);
+        context.Num = r_val;
+        
+        return nullptr;
+    }
+    ```
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  - **ASTSimpleExpression**
+  
+    > simple-expression→additive-expression relop additive-expression ∣ additive-expression
+    >
+    > - relop →**<=** ∣ **<** ∣ **>** ∣ **>=** ∣ **==** ∣ **!=**
+    > - additive-expression→additive-expression addop term ∣ term
+    > - addop→**+** ∣ **-**
+    > - term→term mulop factor ∣ factor
+    > - mulop→***** ∣ **/**
+  
+    ```c++
+    struct ASTSimpleExpression : ASTExpression {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTAdditiveExpression> additive_expression_l;
+        std::shared_ptr<ASTAdditiveExpression> additive_expression_r;
+        RelOp op;
+    };
+    
+    enum RelOp {
+        // <=
+        OP_LE,
+        // <
+        OP_LT,
+        // >
+        OP_GT,
+        // >=
+        OP_GE,
+        // ==
+        OP_EQ,
+        // !=
+        OP_NEQ
+    };
+    ```
+  
+  
+  
+  **思考**:
+  
+  -  `simple-expression`。它有两种情况：
+    1. **简单传递**：只有一个 `additive-expression`，没有关系运算符。比如 `a + b` 本身就是一个 `simple-expression`。
+    2. **关系比较**：由两个 `additive-expression` 和一个关系运算符（`<`, `==` 等）组成，例如 `a <= b`。
+  - **核心挑战是什么？**
+    1. **混合类型比较**：当一个整数和一个浮点数比较时（例如 `5 < 6.2`），必须先把整数 `5` **提升 (promote)** 为浮点数 `5.0`，然后再进行两个浮点数的比较。
+    2. **返回类型**：关系运算的结果在 Cminusf/C 语言中是一个**整数**：`1` 代表“真”，`0` 代表“假”。而在 LLVM IR 中，比较指令 (`icmp`, `fcmp`) 的结果是一个 `i1` 类型（1位宽的布尔值）。因此，我们必须将 `i1` 的结果再转换为 `i32`。
+  
+  **回答**:
+  
+  - 首先，判断是“简单传递”还是“关系比较”。如果是前者，只需递归访问唯一的子节点即可。
+  - 如果是“关系比较”，需要：
+    1. 递归访问左右两个子表达式，获得它们的值和类型。
+    2. 判断左右两边的类型。如果**至少有一个**是 `TYPE_FLOAT`，就进入“浮点比较”逻辑；否则，进入“整数比较”逻辑。
+    3. 在“浮点比较”逻辑中，将任何整数操作数用 `sitofp` 指令转换为浮点数，然后调用浮点比较指令 (`fcmp`)。
+    4. 在“整数比较”逻辑中，直接调用整数比较指令 (`icmp`)。
+    5. 将 `icmp` 或 `fcmp` 返回的 `i1` 结果，用 `zext`（零扩展）指令转换为 `i32` 类型。
+    6. 最后，将这个 `i32` 类型的结果存入 `context.Num`，并把 `context.NumType` 设置为 `TYPE_INT`。
+  
+  
+  
+  ```c++
+  Value* CminusfBuilder::visit(ASTSimpleExpression &node) {
+      // TODO: This function is empty now.
+      // Add some code here.
+      if(node.additive_expression_r == nullptr){
+          node.additive_expression_l->accept(*this);
+          return nullptr;
+      }
+  
+      node.additive_expression_l->accept(*this);
+      Value *l_val = context.Num;
+      CminusType l_type = context.NumType;
+      node.additive_expression_r->accept(*this);
+      Value *r_val = context.Num;
+      CminusType r_type = context.NumType;
+  
+      Value *res_val = nullptr;
+  
+      if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+          if(l_type == TYPE_INT){
+              l_val = builder->create_sitofp(l_val, FLOAT_T);
+          }
+          if(r_type == TYPE_INT){
+              r_val = builder->create_sitofp(r_val, FLOAT_T);
+          }
+  
+          switch (node.op)
+          {
+          case OP_LT:
+              res_val = builder->create_fcmp_lt(l_val, r_val);
+              break;
+          case OP_LE:
+              res_val = builder->create_fcmp_le(l_val, r_val);
+              break;
+          case OP_GT:
+              res_val = builder->create_fcmp_gt(l_val, r_val);
+              break;
+          case OP_GE:
+              res_val = builder->create_fcmp_ge(l_val, r_val);
+              break;
+          case OP_EQ:
+              res_val = builder->create_fcmp_eq(l_val, r_val);
+              break;
+          case OP_NEQ:
+              res_val = builder->create_fcmp_ne(l_val, r_val);
+              break;
+          }
+      }
+      else{
+          switch (node.op)
+          {
+          case OP_LT:
+              res_val = builder->create_icmp_lt(l_val, r_val);
+              break;
+          case OP_LE:
+              res_val = builder->create_icmp_le(l_val, r_val);
+              break;
+          case OP_GT:
+              res_val = builder->create_icmp_gt(l_val, r_val);
+              break;
+          case OP_GE:
+              res_val = builder->create_icmp_ge(l_val, r_val);
+              break;
+          case OP_EQ:
+              res_val = builder->create_icmp_eq(l_val, r_val);
+              break;
+          case OP_NEQ:
+              res_val = builder->create_icmp_ne(l_val, r_val);
+              break;
+          }    
+      }
+  
+      context.Num = builder->create_zext(res_val, INT32_T);
+      context.NumType = TYPE_INT;
+  
+      return nullptr;
+  }
+  ```
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  - **ASTAdditiveExpression**
+  
+    > additive-expression→additive-expression addop term ∣ term
+    >
+    > 1. addop→**+** ∣ **-**
+    > 2. term→term mulop factor ∣ factor
+    > 3. mulop→***** ∣ **/**
+    > 4. factor→**(** expression **)** ∣ var ∣ call ∣ integer ∣ float
+  
+    ```c++
+    struct ASTAdditiveExpression : ASTNode {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTAdditiveExpression> additive_expression;
+        AddOp op;
+        std::shared_ptr<ASTTerm> term;
+    };
+    
+    enum AddOp {
+        // +
+        OP_PLUS,
+        // -
+        OP_MINUS
+    };
+    ```
+  
+  
+  
+  **思考**:
+  
+  - `additive-expression`，即加法（`+`）和减法（`-`）运算。
+  - **它的结构是怎样的？** 它是左递归的。一个表达式 `a + b - c` 在 AST 中会被解析为 `( (a + b) - c )`。最内层的 `a + b` 是一个 `ASTAdditiveExpression`，它的左边是 `a` (一个`ASTTerm`)，右边是 `b` (一个`ASTTerm`)。
+  - **核心挑战是什么？** 和关系运算类似，核心挑战是处理**混合类型的运算**。当一个整数和一个浮点数相加减时（例如 `5 + 6.2`），必须先把整数 `5` **提升 (promote)** 为浮点数 `5.0`，然后再进行两个浮点数的运算，结果也是浮点数。
+  
+  **回答**:
+  
+  - 首先，判断是“递归终点”还是“递归过程”。如果 `node.additive_expression` 为 `nullptr`，说明这是一个基础情况（比如表达式只有一个 `term`），我只需递归访问这个 `term` 即可。
+  - 如果是“递归过程”，我需要：
+    1. 递归访问左边的 `additive_expression` 和右边的 `term`，获得它们的值和类型。
+    2. 判断左右两边的类型。如果**至少有一个**是 `TYPE_FLOAT`，就进入“浮点运算”逻辑；否则，进入“整数运算”逻辑。
+    3. 在“浮点运算”逻辑中，将任何整数操作数用 `sitofp` 指令转换为浮点数，然后调用浮点加/减指令 (`fadd`/`fsub`)。
+    4. 在“整数运算”逻辑中，直接调用整数加/减指令 (`iadd`/`isub`)。
+    5. 最后，将运算结果和其对应的类型更新回 `context.Num` 和 `context.NumType`。
+  
+  
+  
+  ```c++
+  Value* CminusfBuilder::visit(ASTAdditiveExpression &node) {
+      // TODO: This function is empty now.
+      // Add some code here.
+      if(node.additive_expression == nullptr){
+          node.term->accept(*this);
+          return nullptr;
+      }
+  
+      node.additive_expression->accept(*this);
+      Value *l_val = context.Num;
+      CminusType l_type = context.NumType;
+  
+      node.term->accept(*this);
+      Value *r_val = context.Num;
+      CminusType r_type = context.NumType;
+  
+      if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+          if(l_type == TYPE_INT){
+              l_val = builder->create_sitofp(l_val, FLOAT_T);
+          }
+          if(r_type == TYPE_INT){
+              r_val = builder->create_sitofp(r_val, FLOAT_T);
+          }
+  
+          switch (node.op)
+          {
+          case OP_PLUS:
+              context.Num = builder->create_fadd(l_val, r_val);
+              break;
+          case OP_MINUS:
+              context.Num = builder->create_fsub(l_val, r_val);
+              break;
+          }
+          context.NumType = TYPE_FLOAT;
+      }
+      else{
+          switch (node.op)
+          {
+          case OP_PLUS:
+              context.Num = builder->create_iadd(l_val, r_val);
+              break;
+          case OP_MINUS:
+              context.Num = builder->create_isub(l_val, r_val);
+              break;
+          }
+          context.NumType = TYPE_INT;
+      }
+  
+      return nullptr;
+  }
+  ```
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  - **ASTTerm**
+  
+    > term→term mulop factor ∣ factor
+    >
+    > mulop→***** ∣ **/**
+  
+    ```c++
+    struct ASTTerm : ASTNode {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::shared_ptr<ASTTerm> term;
+        MulOp op;
+        std::shared_ptr<ASTFactor> factor;
+    };
+    
+    enum MulOp {
+        // *
+        OP_MUL,
+        // /
+        OP_DIV
+    };
+    ```
+  
+  
+  
+  **思考**:
+  
+  - `term`，即乘法和除法。它的结构也是左递归的，以正确处理 `a * b / c` 这样的链式运算。
+  - **基础情况是什么？** 当 `node.term` 为 `nullptr` 时，表示这个 `term` 实际上只是一个 `factor`（比如一个单独的变量或数字），没有乘除运算。
+  - **核心挑战是什么？** 挑战与加减法完全相同：处理**混合类型的运算**。当一个整数和一个浮点数相乘除时，必须先把整数**提升**为浮点数，然后进行浮点运算，其结果也为浮点数。
+  
+  **回答**:
+  
+  - 首先，判断是“基础情况”还是“二元运算”。如果是前者，我只需递归访问唯一的 `factor` 子节点。
+  - 如果是“二元运算”，我需要：
+    1. 递归访问左边的 `term` 和右边的 `factor`，获得它们的值和类型。
+    2. 判断左右两边的类型。如果**至少有一个**是 `TYPE_FLOAT`，就进入“浮点运算”逻辑；否则，进入“整数运算”逻辑。
+    3. 在“浮点运算”逻辑中，将任何整数操作数用 `sitofp` 指令转换为浮点数，然后调用浮点乘/除指令 (`fmul`/`fdiv`)。
+    4. 在“整数运算”逻辑中，直接调用整数乘/除指令 (`imul`/`isdiv` - 有符号整数除法)。
+    5. 最后，将运算结果和其对应的类型更新回 `context`。
+  
+  
+  
+  ```c++
+  Value* CminusfBuilder::visit(ASTTerm &node) {
+      // TODO: This function is empty now.
+      // Add some code here.
+      if(node.term == nullptr){
+          node.factor->accept(*this);
+          return nullptr;
+      }
+  
+      node.term->accept(*this);
+      Value *l_val = context.Num;
+      CminusType l_type = context.NumType;
+  
+      node.factor->accept(*this);
+      Value *r_val = context.Num;
+      CminusType r_type = context.NumType;
+  
+      if(l_type == TYPE_FLOAT || r_type == TYPE_FLOAT){
+          if(l_type == TYPE_INT){
+              l_val = builder->create_sitofp(l_val, FLOAT_T);
+          }
+          if(r_type == TYPE_INT){
+              r_val = builder->create_sitofp(r_val, FLOAT_T);
+          }
+  
+          switch (node.op)
+          {
+          case OP_MUL:
+              context.Num = builder->create_fmul(l_val, r_val);
+              break;
+          case OP_DIV:
+              context.Num = builder->create_fdiv(l_val, r_val);
+              break;
+          }
+          context.NumType = TYPE_FLOAT;
+      }
+  
+      else{
+          switch (node.op)
+          {
+          case OP_MUL:
+              context.Num = builder->create_imul(l_val, r_val);
+              break;
+          case OP_DIV:
+              context.Num = builder->create_isdiv(l_val, r_val);
+              break;
+          }
+          context.NumType = TYPE_INT;
+      }
+  
+      return nullptr;
+  }
+  ```
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  - **ASTCall**
+  
+    > call→**ID** **(** args**)**
+  
+    ```c++
+    struct ASTCall : ASTFactor {
+        virtual Value *accept(ASTVisitor &) override final;
+        std::string id;
+        std::vector<std::shared_ptr<ASTExpression>> args;
+    }
+    ```
+  
+    
+  
+    **思考**:
+  
+    - **函数调用的本质是什么？** 它是一系列操作的组合：
+      1. **找到要调用的函数**：首先，需要根据函数名 `node.id` 在符号表中找到对应的 `Function` 对象。
+      2. **准备参数**：需要按顺序处理调用时提供的每一个参数表达式（`node.args`）。
+      3. **类型匹配与转换**：对于每一个参数，必须将其计算出的值与函数签名中**期望的参数类型**进行比较。如果不匹配（比如函数需要 `int`，但我提供了一个 `float`），就必须插入一条类型转换指令。
+      4. **执行调用**：将准备好的所有参数传递给函数，并生成一条 `call` 指令。
+      5. **处理返回值**：函数调用本身是一个表达式，它会产生一个值（函数的返回值）。需要将这个返回值及其类型存入 `context`，以便它可以被用在更复杂的表达式中（例如 `x = foo() + 1;`）。
+  
+    **回答**:
+  
+    - 首先从 `scope` 中查找函数。
+    - 然后，遍历 `node.args` 列表。在循环中，对于第 `i` 个参数：
+      - 递归调用 `arg->accept(*this)` 来计算出它的值。
+      - 从 `Function` 对象的类型签名中，获取第 `i` 个参数**期望的 IR 类型** `expected_type`。
+      - 将参数的实际类型与 `expected_type` 比较，并在必要时生成 `sitofp` 或 `fptosi` 指令进行转换。
+      - 特别地，如果期望的参数是**指针类型**（比如传递数组），则需要传递它的地址，这个地址在 `arg->accept(*this)` 调用后会存放在 `context.varAddr` 中。
+    - 将所有处理好的参数值收集到一个 `std::vector<Value *>` 中。
+    - 使用 `builder->create_call()` 生成调用指令。
+    - 最后，检查被调用函数的返回类型，并相应地更新 `context.Num` 和 `context.NumType`。
+  
+    
+  
+    ```cpp
+    Value* CminusfBuilder::visit(ASTCall &node) {
+        // TODO: This function is empty now.
+        // Add some code here.
+        auto callee_fun = scope.find(node.id);
+        assert(callee_fun != nullptr && "Function not found in the scope");
+        auto func = static_cast<Function *>(callee_fun);
+        std::vector<Value *> args;
+    
+        for(int i = 0; i < node.args.size(); ++i){
+            node.args[i]->accept(*this);
+            Value *arg_val = context.Num;
+            CminusType arg_type = context.NumType;
+    
+            Type *param_type = func->get_function_type()->get_param_type(i);
+            if(param_type->is_integer_type() && arg_type == TYPE_FLOAT){
+                arg_val = builder->create_fptosi(arg_val, INT32_T);
+                context.NumType = TYPE_INT;
+            }
+            else if(param_type->is_float_type() && arg_type == TYPE_INT){
+                arg_val = builder->create_sitofp(arg_val, FLOAT_T);
+                context.NumType = TYPE_FLOAT;
+            }
+    
+            args.push_back(arg_val);
+        }
+    
+        context.Num = builder->create_call(func, args);
+    
+        auto ret_type = func->get_return_type();
+        if(ret_type->is_integer_type()){
+            context.NumType = TYPE_INT;
+        }
+        else if(ret_type->is_float_type()){
+            context.NumType = TYPE_FLOAT;
+        }
+        else if(ret_type->is_void_type()){
+            context.NumType = TYPE_VOID;
+        }
+    
+        return nullptr;
+    }
+    ```
+  
+    
