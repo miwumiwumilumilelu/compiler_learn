@@ -349,9 +349,9 @@ Value* CminusfBuilder::visit(ASTVar &node) {
     if(node.expression == nullptr){
         auto pointee_type = var_ptr->get_type()->get_pointer_element_type();
 
-        if(pointee_type->is_integer_type()|| pointee_type->is_float_type()){
+        if(pointee_type->is_int32_type()|| pointee_type->is_float_type()){
             context.varAddr = var_ptr;
-            context.NumType = (pointee_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+            context.NumType = (pointee_type->is_int32_type()) ? TYPE_INT : TYPE_FLOAT;
             context.Num = builder->create_load(var_ptr);
         }
 
@@ -376,7 +376,7 @@ Value* CminusfBuilder::visit(ASTVar &node) {
         auto *check_bb = BasicBlock::create(module.get(), "arrayidx.check" + std::to_string(context.count++), func);
         auto *error_bb = BasicBlock::create(module.get(), "arrayidx.error" + std::to_string(context.count++), func);
 
-        Value *is_non_negative = builder->create_icmp_sge(idx, CONST_INT(0)); // >=0
+        Value *is_non_negative = builder->create_icmp_ge(idx, CONST_INT(0)); // >=0
         builder->create_cond_br(is_non_negative, check_bb, error_bb);
 
         builder->set_insert_point(error_bb);
@@ -399,7 +399,7 @@ Value* CminusfBuilder::visit(ASTVar &node) {
 
         context.Num = builder->create_load(context.varAddr);
         auto element_type = context.varAddr->get_type()->get_pointer_element_type();
-        context.NumType = (element_type->is_integer_type()) ? TYPE_INT : TYPE_FLOAT;
+        context.NumType = (element_type->is_int32_type()) ? TYPE_INT : TYPE_FLOAT;
     }
     return nullptr;
 }
@@ -415,7 +415,7 @@ Value* CminusfBuilder::visit(ASTAssignExpression &node) {
 
     Type *l_type = l_addr->get_type()->get_pointer_element_type();
     
-    if(l_type->is_integer_type() && context.NumType == TYPE_FLOAT){
+    if(l_type->is_int32_type() && context.NumType == TYPE_FLOAT){
         r_val = builder->create_fptosi(r_val, INT32_T);
         context.NumType = TYPE_INT;
     }
@@ -624,13 +624,16 @@ Value* CminusfBuilder::visit(ASTCall &node) {
         CminusType arg_type = context.NumType;
 
         Type *param_type = func->get_function_type()->get_param_type(i);
-        if(param_type->is_integer_type() && arg_type == TYPE_FLOAT){
+        if(param_type->is_int32_type() && arg_type == TYPE_FLOAT){
             arg_val = builder->create_fptosi(arg_val, INT32_T);
             context.NumType = TYPE_INT;
         }
         else if(param_type->is_float_type() && arg_type == TYPE_INT){
             arg_val = builder->create_sitofp(arg_val, FLOAT_T);
             context.NumType = TYPE_FLOAT;
+        }
+        else if(param_type->is_pointer_type()){
+            arg_val = context.varAddr;
         }
 
         args.push_back(arg_val);
@@ -639,7 +642,7 @@ Value* CminusfBuilder::visit(ASTCall &node) {
     context.Num = builder->create_call(func, args);
 
     auto ret_type = func->get_return_type();
-    if(ret_type->is_integer_type()){
+    if(ret_type->is_int32_type()){
         context.NumType = TYPE_INT;
     }
     else if(ret_type->is_float_type()){
