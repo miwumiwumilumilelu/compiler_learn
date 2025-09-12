@@ -630,6 +630,415 @@ main:
 
 ### 1.2 了解后端框架
 
+#### 1.2.1 顶层设计
+
+> .
+> ├── ...
+> ├── include
+> │   ├── ...
+> │   └── codegen
+> │       ├── ASMInstruction.hpp  # 描述汇编指令
+> │       ├── CodeGen.hpp         # 后端框架顶层设计
+> │       ├── CodeGenUtil.hpp     # 一些辅助函数及宏的定义
+> │       └── Register.hpp        # 描述寄存器
+
+顶层的 `Codegen` 类只维护了如下成员：
+
+```c
+class CodeGen {
+    // ...
+  private:
+    struct { ... } context;             // 类似 lab2 的 context，用于保存翻译过程中的上下文信息，如当前所在函数
+    Module *m;                          // 输入的 IR 模块
+    std::list<ASMInstruction> output;   // 生成的汇编指令
+};
+```
+
+上层函数如下：
+
+在 C++ 中，`explicit` 关键字用于修饰**单参数构造函数**或**除第一个参数外都有默认值的构造函数**。它的主要作用是**禁止隐式类型转换** 
+
+```c
+class CodeGen {
+    // ...
+  public:
+    explicit CodeGen(Module *module) : m(module) {} // 构造函数
+    std::string print() const;                      // 将汇编指令格式化输出
+    void run();                                     // 后端代码生成的入口函数
+}
+```
+
+需要了解或者实现的是下面一系列函数：
+
+```c
+class CodeGen {
+    // ...
+  private:
+    // 栈式分配的变量分配环节，将在函数翻译开始时调用
+    void allocate();
+
+    /*=== 以下为助教准备的辅助函数 ===*/
+    // 将数据在寄存器和栈帧间搬移。下边的章节将详细介绍
+    void load_xxx(...);
+    void store_xxx(...);
+    // 添加汇编指令
+    void append_inst(...);
+    // 基本块在汇编程序中的名字
+    static std::string label_name(BasicBlock *bb);
+    /*=== 以上为助教准备的辅助函数 ===*/
+
+    // 需要补全的部分，进行代码生成的各个环节
+    void gen_xxx(...);
+};
+```
+
+初始代码已经为你处理好了一些繁琐的细节，如全局变量的定义及初始化、汇编中 `section` `type` 的定义等，所以你可以把重点放在栈式分配的实现中
+
+
+
+#### 1.2.2 基本类描述
+
+指令类`ASMInstruction`是用来描绘一行汇编指令，在 `CodeGen` 中以 `std::list` 形式组织
+
+`std::list<ASMInstruction> output;`
+
+```c
+struct ASMInstruction {
+    enum InstType {
+        Instruction,    // 汇编指令
+        Atrribute,      // 汇编伪指令、描述符等非常规指令
+        Label,          // 汇编中的 label
+        Comment         // 注释
+    } type;             // 用来描述指令的用途，会被下面的 format 函数使用
+
+    std::string content; // 汇编代码，不包含换行符等格式化的信息
+
+    explicit ASMInstruction(std::string s, InstType ty = Instruction); // 构造函数
+    std::string format() const; // 根据 type 对 content 进行格式化（如添加缩进、换行符等）
+};
+```
+
+`ASMInstruction("some debug info", ASMInstruction::Comment)` 定义了一个指令类实例——其用途是注释， `format()` 的返回结果是如下字符串：`"#some debug info\n"`
+
+
+
+#### 1.2.3 寄存器类
+
+寄存器分为通用寄存器 `Reg` 、浮点寄存器 `FReg` 和条件标志寄存器 `CFReg`
+
+以下是 `FReg` 的代码定义，`Reg` 与 `CFReg` 的定义与之类似:
+
+```c
+struct FReg {
+    unsigned id; // 0 <= id <= 31,寄存器的id
+
+    explicit FReg(unsigned i); // 禁止隐式类型转换的构造函数
+    bool operator==(const FReg &other);
+
+    std::string print() const;  // 根据 id 返回寄存器别名，如 "$fa0" 而不是 "$f0"
+
+    static FReg fa(unsigned i); // 得到寄存器 $faN
+    static FReg ft(unsigned i); // 得到寄存器 $ftN
+    static FReg fs(unsigned i); // 得到寄存器 $fsN
+};
+```
+
+`bool operator==(const FReg &other);`
+
+这是对 `==`（等于）运算符的重载。它允许你直接比较两个 `FReg` 对象是否相等,如 (" `if (r1 = r2) `")
+
+`std::string print() const;`
+
+**`const` 关键字**：表示这个函数是一个“只读”操作，它不会修改 `FReg` 对象自身的 `id` 值
+
+后续还需要具体实现对应的映射关系 `$f0`——>  `$fa0`
+
+- `FReg(0)` 定义了寄存器 `$f0` 的实例，`print()` 的结果是 `"$fa0"`
+- 为了获得 `$ft0` 的实例，你可以使用 `FReg(8)`，也可以使用更方便的`FReg::ft(0)`
+
+
+
+#### 1.2.4 框架带的辅助函数
+
+`load/store`
+
+**用于方便地提取数据至寄存器和将寄存器数据保存至栈上**
+
+```c
+class CodeGen {
+    //...
+  private:
+    // 向寄存器中装载数据
+    void load_to_greg(Value *, const Reg &);    // 将 IR 中的 Value 加载到整形寄存器中
+    void load_to_freg(Value *, const FReg &);   // 将 IR 中的 Value 加载到浮点寄存器中
+
+    // 将寄存器中的数据保存回栈上
+    void store_from_greg(Value *, const Reg &); // 将整形寄存器中的数据保存至 IR 中 Value 对应的栈帧位置
+    void store_from_freg(Value *, const FReg &);// 将浮点寄存器中的数据保存至 IR 中 Value 对应的栈帧位置
+};
+```
+
+
+
+对于 12bit 能够表示的整形立即数，直接使用 `$dest = $zero + imm` 的形式（`addi dest, zero, imm`）
+
+对于比较复杂的大立即数提取及浮点立即数提取:
+
+```c
+class CodeGen{
+    // ...
+  private:
+    // 向寄存器中加载立即数
+    void load_large_int32(int32_t, const Reg &);    // 提取 32 bit 的整数
+    void load_large_int64(int64_t, const Reg &);    // 提取 64 bit 的整数
+    void load_float_imm(float, const FReg &);       // 提取单精度浮点数（32bit）
+};
+```
+
+
+
+`append_inst()`
+
+`append_inst()` 接口就是用来添加新的 `ASMInstruction`
+
+```c
+///按照 ASMInstruction 的构造函数添加指令
+append_inst("st.d $ra, $sp, -8", ASMInstruction::Instruction);
+// 第二个参数的默认值即为 ASMInstruction::Instruction，所以下边的代码等价
+append_inst("st.d $ra, $sp, -8");
+
+///二次封装后的版本
+append_inst("st.d", {"$ra", "$sp", "-8"}, ASMInstruction::Instruction);
+// 最后一个参数的默认值即为 ASMInstruction::Instruction，所以下边的代码等价
+append_inst("st.d", {"$ra", "$sp", "-8"});
+```
+
+这些封装的宏定义版本在`include/codegen/CodeGenUtil.hpp`
+
+
+
+1.2.5 变量分配
+
+**为程序中的每个变量分配一个栈帧位置，即相对栈指针的一个偏移量**
+
+其设计在`src/codegen/CodeGen.cpp` 中的 `CodeGen::allocate()`
+
+性能上，栈式分配不如寄存器分配，而在实现难度上，栈式分配要简单许多:
+
+​	寄存器分配没有了栈上变量的load到寄存器和结果store回栈上的过程，因此性能更好
+
+
+
+**变量分配实现方案：**
+
+- 记录每个变量相对于栈底 `$fp` 的偏移，由于栈从高向低生长，所以这个偏移量为负数
+- 固定备份两个寄存器：`$ra` 和 `$fp`
+- 备份函数参数： `$fp`把**调用者（父函数）的 `$fp` 值**保存起来，`$ra` 保存返回地址
+- 为每个存在定值的指令分配相应的空间
+- 对于 `alloca` 指令，`alloca` 本身的定值为指针类型，`alloca` 的空间紧挨着这个这个指针，在更靠近栈顶的位置
+
+
+
+```c
+// Cminusf源程序：
+int main(void) {
+    int a;
+    a = 1;
+    return a;
+}
+
+// 生成的 IR 文件（部分）如下：
+define i32 @main() {
+label_entry:
+  %op0 = alloca i32
+  store i32 1, i32* %op0
+  %op1 = load i32, i32* %op0
+  ret i32 %op1
+}
+```
+
+|         栈帧内容         | 宽度 (byte) | 栈帧位置（相对 `$fp` 的偏移） |
+| :----------------------: | :---------: | :---------------------------: |
+|          `$ra`           |      8      |              -8               |
+|          `$fp`           |      8      |              -16              |
+|       `i32* %op0`        |      8      |              -24              |
+| `alloca` 出的 `i32` 空间 |      4      |              -28              |
+|        `i32 %op1`        |      4      |              -32              |
+
+**得到的汇编指令如下：**
+
+```c
+    .text
+    .globl main
+    .type main, @function
+main:
+    # prologue
+    st.d $ra, $sp, -8
+    st.d $fp, $sp, -16
+    addi.d $fp, $sp, 0
+    addi.d $sp, $sp, -32
+.main_label_entry:
+    # %op0 = alloca i32
+    addi.d $t0, $fp, -28
+    st.d $t0, $fp, -24
+    # store i32 1, i32* %op0
+    ld.d $t0, $fp, -24
+    addi.w $t1, $zero, 1
+    st.w $t1, $t0, 0
+    # %op1 = load i32, i32* %op0
+    ld.d $t0, $fp, -24
+    ld.w $t0, $t0, 0
+    st.w $t0, $fp, -32
+    # ret i32 %op1
+    ld.w $a0, $fp, -32
+    b main_exit
+main_exit:
+    # epilogue
+    addi.d $sp, $sp, 32
+    ld.d $ra, $sp, -8
+    ld.d $fp, $sp, -16
+    jr $ra
+```
+
+1/
+
+```c
+main:
+    # prologue
+    st.d $ra, $sp, -8
+    st.d $fp, $sp, -16
+    addi.d $fp, $sp, 0
+    addi.d $sp, $sp, -32
+
+								 +-------------------------+
+                 |    调用者栈帧数据       |
+                 +-------------------------+  <-- 0x1000  <-- $fp
+                 |   备份的 $ra (8字节)    |
+                 +-------------------------+  <-- 0x0FF8
+                 |  备份的旧 $fp (8字节)   |
+                 +-------------------------+  <-- 0x0FF0
+                 |                         |
+                 |     (为局部变量和       |
+                 |      临时值分配的       |
+                 |      32字节空间)        |
+                 |                         |
+                 +-------------------------+  <-- 0x0FE0  <-- $sp (新栈顶)
+
+寄存器状态:
+$sp = 0x0FE0  <-- 已更新!
+$fp = 0x1000
+```
+
+2/	将 `a` 的地址 `0x0FE4` 存入为指针 `%op0` 分配的栈槽 (`$fp - 24`)
+
+```c
+    # %op0 = alloca i32
+    addi.d $t0, $fp, -28
+    st.d $t0, $fp, -24
+      
+         高地址 ^
+                 |
+                 +-------------------------+  <-- 0x1000  <-- $fp
+                 |    备份的 $ra 和 $fp     |  (共16字节)
+                 +-------------------------+  <-- 0x0FF0  ($fp - 16)
+                 |   指针 %op0 (8字节)     |
+                 | (值为 a 的地址 0x0FE4)  |
+                 +-------------------------+  <-- 0x0FE8  ($fp - 24, 指针%op0的地址)
+                 |    变量 a 的空间 (4字节)  |
+                 +-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
+                 |  									    |
+                 +-------------------------+  <-- 0x0FE0  ($fp - 32) <-- $sp
+                 |
+          低地址 v
+```
+
+3/
+
+```c
+    # store i32 1, i32* %op0
+    ld.d $t0, $fp, -24
+    addi.w $t1, $zero, 1
+    st.w $t1, $t0, 0
+    
+                 +-------------------------+  <-- 0x1000  <-- $fp
+                 |       ... (备份)        |
+                 +-------------------------+  <-- 0x0FF0
+                 | 指针 %op0 (值为0x0FE4)  |
+                 +-------------------------+  <-- 0x0FE8
+                 |  变量 a 的值 (1)      |  <-- 内存被写入!
+      					+-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
+                 |  									    |
+                 +-------------------------+  <-- 0x0FE0  ($fp - 32) <-- $sp
+```
+
+4/ 	**指針解引用**`x = *p` 	 `ld.w $t0, $t0, 0`根据 `p` 或 `$t0` 中的地址，去拿回 `a` 的值
+
+```c
+    # %op1 = load i32, i32* %op0
+    ld.d $t0, $fp, -24
+    ld.w $t0, $t0, 0
+    st.w $t0, $fp, -32
+    # ret i32 %op1
+    ld.w $a0, $fp, -32
+    b main_exit
+    
+                 +-------------------------+  <-- 0x1000  <-- $fp
+                 |       ... (备份)        |
+                 +-------------------------+
+                 | 指针 %op0 (值为0x0FE4)  |
+                 +-------------------------+
+                 |  变量 a 的值 (1)      |
+                 +-------------------------+
+                 | 临时结果 %op1 (1)     |  <-- 内存被写入!
+                 +-------------------------+  <-- 0x0FE0  <-- $sp
+
+寄存器状态:
+$a0 = 1  <-- 已准备好返回值!
+```
+
+5/
+
+```c
+ main_exit:
+    # epilogue
+    addi.d $sp, $sp, 32
+    ld.d $ra, $sp, -8
+    ld.d $fp, $sp, -16
+    jr $ra
+      
+      					 +-------------------------+
+                 |    调用者栈帧数据       |
+                 +-------------------------+  <-- 0x1000  <-- $sp, $fp
+                 |   (main的栈帧已释放)    |
+                 |   (数据还残留在内存中)  |
+                 |          ...            |
+
+寄存器状态:
+$sp = 0x1000  <-- 已恢复!
+$fp = 0x1000
+```
+
+**总结栈帧图：**
+
+```
+         高地址 ^
+                 |
+                 +-------------------------+  <-- 0x1000  <-- $fp
+                 |    备份的 $ra 和 $fp     |  (共16字节)
+                 +-------------------------+  <-- 0x0FF0  ($fp - 16)
+                 |   指针 %op0 (8字节)     |
+                 | (值为 a 的地址 0x0FE4)  |
+                 +-------------------------+  <-- 0x0FE8  ($fp - 24, 指针%op0的地址)
+                 |    变量 a 的空间 (4字节)  |
+                 |   (此后将被写入值 1)    |
+                 +-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
+                 |  临时结果 %op1 (4字节)  |
+                 |  (此后将被写入值 1)     |
+                 +-------------------------+  <-- 0x0FE0  ($fp - 32, 临时结果%op1的地址) <-- $sp
+                 |
+          低地址 v
+```
+
 
 
 
