@@ -124,7 +124,7 @@
 
 
 
-##### **一、主要学习其栈帧分配思想**
+**一、主要学习其栈帧分配思想**
 
 
 
@@ -296,7 +296,7 @@ main_exit:
 
   
 
-##### 二、示例1：返回值问题
+**二、示例1：返回值问题**
 
 ```c
 源程序：
@@ -324,7 +324,7 @@ main:
 
 
 
-##### 三、示例2：注意比较对象是寄存器还是立即数
+**三、示例2：注意比较对象是寄存器还是立即数**
 
 ```c
 源程序：
@@ -399,7 +399,7 @@ blt $t2, $t1, .main_then
 
 
 
-##### 四、示例3：注意main返回值，可能需要修改a0
+**四、示例3：注意main返回值，可能需要修改a0**
 
 ```c
 源程序：
@@ -480,7 +480,7 @@ main:
 
 
 
-##### 五、示例4：学习转值操作和陌生龙芯汇编指令
+**五、示例4：学习转值操作和陌生龙芯汇编指令**
 
 ```c
 源程序：
@@ -552,9 +552,9 @@ main:
 
 
 
-##### 六、总结龙芯汇编指令和GNU工具链关系以及浮点和整型的互转指令：
+#### **1.1.3 龙芯汇编和GNU工具链**
 
-###### **龙芯指令（LoongArch）和 GNU 工具链的关系**
+**龙芯指令（LoongArch）和 GNU 工具链的关系**
 
 **LoongArch** 是中国龙芯中科公司自主研发的一套 CPU 指令集架构（ISA）。它是一个全新的架构，独立于 MIPS、ARM、x86 等现有指令集。
 
@@ -576,7 +576,7 @@ main:
 
 
 
-###### **浮点数转整数，整数转浮点的指令**
+**浮点数转整数，整数转浮点的指令**
 
 在 LoongArch 架构中，浮点数和整数之间的转换指令主要有以下几类。这些指令通常遵循 IEEE 754 浮点数标准，并且会涉及到不同的舍入模式。
 
@@ -630,7 +630,7 @@ main:
 
 ### 1.2 了解后端框架
 
-#### 1.2.1 顶层设计
+#### 1.2.1 **顶层设计**
 
 > .
 > ├── ...
@@ -696,7 +696,7 @@ class CodeGen {
 
 
 
-#### 1.2.2 基本类描述
+* **基本类描述**
 
 指令类`ASMInstruction`是用来描绘一行汇编指令，在 `CodeGen` 中以 `std::list` 形式组织
 
@@ -722,7 +722,7 @@ struct ASMInstruction {
 
 
 
-#### 1.2.3 寄存器类
+* 寄存器类
 
 寄存器分为通用寄存器 `Reg` 、浮点寄存器 `FReg` 和条件标志寄存器 `CFReg`
 
@@ -753,12 +753,15 @@ struct FReg {
 
 后续还需要具体实现对应的映射关系 `$f0`——>  `$fa0`
 
-- `FReg(0)` 定义了寄存器 `$f0` 的实例，`print()` 的结果是 `"$fa0"`
-- 为了获得 `$ft0` 的实例，你可以使用 `FReg(8)`，也可以使用更方便的`FReg::ft(0)`
+​	FReg(0)` 定义了寄存器 `$f0` 的实例，`print()` 的结果是 `"$fa0"`
+
+​	为了获得 `$ft0` 的实例，你可以使用 `FReg(8)`，也可以使用更方便的`FReg::ft(0)`
 
 
 
-#### 1.2.4 框架带的辅助函数
+
+
+* 框架带的辅助函数
 
 `load/store`
 
@@ -920,7 +923,7 @@ main:
                  |                         |
                  |     (为局部变量和       |
                  |      临时值分配的       |
-                 |      32字节空间)        |
+                 |      16字节空间)        |
                  |                         |
                  +-------------------------+  <-- 0x0FE0  <-- $sp (新栈顶)
 
@@ -1037,6 +1040,209 @@ $fp = 0x1000
                  +-------------------------+  <-- 0x0FE0  ($fp - 32, 临时结果%op1的地址) <-- $sp
                  |
           低地址 v
+```
+
+
+
+#### 1.2.2 API源码解读
+
+* **`load_to_greg`**
+  * **作用**：将一个给定中间 IR 层面的值 (`Value* val`) 加载到 LoongArch64 架构的一个指定的通用寄存器 (`const Reg& reg`) 中
+
+```c
+void CodeGen::load_to_greg(Value* val, const Reg& reg) {
+    assert(val->get_type()->is_integer_type() ||
+        val->get_type()->is_pointer_type());
+
+    if (auto* constant = dynamic_cast<ConstantInt*>(val)) {
+        int32_t val = constant->get_value();
+        if (IS_IMM_12(val)) {
+            append_inst(ADDI WORD, { reg.print(), "$zero", std::to_string(val) });
+        }
+        else {
+            load_large_int32(val, reg);
+        }
+    }
+    else if (auto* global = dynamic_cast<GlobalVariable*>(val)) {
+        append_inst(LOAD_ADDR, { reg.print(), global->get_name() });
+    }
+    else {
+        load_from_stack_to_greg(val, reg);
+    }
+}
+```
+
+将不同类型值（常量、全局变量、局部变量）加载到寄存器所需的**不同汇编指令序列封装起来**
+
+向上层代码（编译器其他部分）提供一个**统一且简单的接口**
+
+
+
+`assert`断言确保传入的 `val` 必须是整数类型或指针类型，若是浮点数，则程序会在运行时在此处中断
+
+
+
+
+
+* **`load_large_int32`**
+
+```c
+void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
+    int32_t high_20 = val >> 12; // si20
+    uint32_t low_12 = val & LOW_12_MASK;
+    append_inst(LU12I_W, { reg.print(), std::to_string(high_20) });
+    append_inst(ORI, { reg.print(), reg.print(), std::to_string(low_12) });
+}
+```
+
+
+
+* **`load_large_int64`**
+
+```c
+void CodeGen::load_large_int64(int64_t val, const Reg& reg) {
+    auto low_32 = static_cast<int32_t>(val & LOW_32_MASK);
+    load_large_int32(low_32, reg);
+
+    auto high_32 = static_cast<int32_t>(val >> 32);
+    int32_t high_32_low_20 = (high_32 << 12) >> 12; // si20
+    int32_t high_32_high_12 = high_32 >> 20;        // si12
+    append_inst(LU32I_D, { reg.print(), std::to_string(high_32_low_20) });
+    append_inst(LU52I_D,
+        { reg.print(), reg.print(), std::to_string(high_32_high_12) });
+}
+```
+
+
+
+* **`load_from_stack_to_greg`**
+
+```c
+void CodeGen::load_from_stack_to_greg(Value* val, const Reg& reg) {
+    auto offset = context.offset_map.at(val);
+    auto offset_str = std::to_string(offset);
+    auto* type = val->get_type();
+    if (IS_IMM_12(offset)) {
+        if (type->is_int1_type()) {
+            append_inst(LOAD BYTE, { reg.print(), "$fp", offset_str });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(LOAD WORD, { reg.print(), "$fp", offset_str });
+        }
+        else { // Pointer
+            append_inst(LOAD DOUBLE, { reg.print(), "$fp", offset_str });
+        }
+    }
+    else {
+        load_large_int64(offset, reg);
+        append_inst(ADD DOUBLE, { reg.print(), "$fp", reg.print() });
+        if (type->is_int1_type()) {
+            append_inst(LOAD BYTE, { reg.print(), reg.print(), "0" });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(LOAD WORD, { reg.print(), reg.print(), "0" });
+        }
+        else { // Pointer
+            append_inst(LOAD DOUBLE, { reg.print(), reg.print(), "0" });
+        }
+    }
+}
+```
+
+
+
+* **`store_from_greg`**
+
+```c
+void CodeGen::store_from_greg(Value* val, const Reg& reg) {
+    auto offset = context.offset_map.at(val);
+    auto offset_str = std::to_string(offset);
+    auto* type = val->get_type();
+    if (IS_IMM_12(offset)) {
+        if (type->is_int1_type()) {
+            append_inst(STORE BYTE, { reg.print(), "$fp", offset_str });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(STORE WORD, { reg.print(), "$fp", offset_str });
+        }
+        else { // Pointer
+            append_inst(STORE DOUBLE, { reg.print(), "$fp", offset_str });
+        }
+    }
+    else {
+        auto addr = Reg::t(8);
+        load_large_int64(offset, addr);
+        append_inst(ADD DOUBLE, { addr.print(), "$fp", addr.print() });
+        if (type->is_int1_type()) {
+            append_inst(STORE BYTE, { reg.print(), addr.print(), "0" });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(STORE WORD, { reg.print(), addr.print(), "0" });
+        }
+        else { // Pointer
+            append_inst(STORE DOUBLE, { reg.print(), addr.print(), "0" });
+        }
+    }
+}
+```
+
+
+
+* **`load_to_freg`**
+
+```c
+void CodeGen::load_to_freg(Value* val, const FReg& freg) {
+    assert(val->get_type()->is_float_type());
+    if (auto* constant = dynamic_cast<ConstantFP*>(val)) {
+        float val = constant->get_value();
+        load_float_imm(val, freg);
+    }
+    else {
+        auto offset = context.offset_map.at(val);
+        auto offset_str = std::to_string(offset);
+        if (IS_IMM_12(offset)) {
+            append_inst(FLOAD SINGLE, { freg.print(), "$fp", offset_str });
+        }
+        else {
+            auto addr = Reg::t(8);
+            load_large_int64(offset, addr);
+            append_inst(ADD DOUBLE, { addr.print(), "$fp", addr.print() });
+            append_inst(FLOAD SINGLE, { freg.print(), addr.print(), "0" });
+        }
+    }
+}
+```
+
+
+
+* **`load_float_imm`**
+
+```c
+void CodeGen::load_float_imm(float val, const FReg& r) {
+    int32_t bytes = *reinterpret_cast<int32_t*>(&val);
+    load_large_int32(bytes, Reg::t(8));
+    append_inst(GR2FR WORD, { r.print(), Reg::t(8).print() });
+}
+```
+
+
+
+* **`store_from_freg`**
+
+```c
+void CodeGen::store_from_freg(Value* val, const FReg& r) {
+    auto offset = context.offset_map.at(val);
+    if (IS_IMM_12(offset)) {
+        auto offset_str = std::to_string(offset);
+        append_inst(FSTORE SINGLE, { r.print(), "$fp", offset_str });
+    }
+    else {
+        auto addr = Reg::t(8);
+        load_large_int64(offset, addr);
+        append_inst(ADD DOUBLE, { addr.print(), "$fp", addr.print() });
+        append_inst(FSTORE SINGLE, { r.print(), addr.print(), "0" });
+    }
+}
 ```
 
 
