@@ -1053,16 +1053,20 @@ $fp = 0x1000
 void CodeGen::load_to_greg(Value* val, const Reg& reg) {
     assert(val->get_type()->is_integer_type() ||
         val->get_type()->is_pointer_type());
-
+// 如果Value是ConstantIn整形常量类
     if (auto* constant = dynamic_cast<ConstantInt*>(val)) {
+      // 获取这个常量整数的具体值
         int32_t val = constant->get_value();
+      // 判断该整数值是否能用 LoongArch64 指令集的 12 位立即数表示（通常范围是 -2048 到 2047）
         if (IS_IMM_12(val)) {
             append_inst(ADDI WORD, { reg.print(), "$zero", std::to_string(val) });
         }
+      // 若超过12位，则调用load_large_int32
         else {
             load_large_int32(val, reg);
         }
     }
+ // 如果Value是GlobalVariable全局变量
     else if (auto* global = dynamic_cast<GlobalVariable*>(val)) {
         append_inst(LOAD_ADDR, { reg.print(), global->get_name() });
     }
@@ -1082,9 +1086,68 @@ void CodeGen::load_to_greg(Value* val, const Reg& reg) {
 
 
 
+ 通过 `dynamic_cast`，`load_to_greg` 函数能够根据传入 `Value` 对象的实际运行时类型，动态地选择正确的代码生成策略
+
+`dynamic_cast` 是 C++ 中的一个**运行时类型识别特性**，用于在**运行时**安全地将基类指针或引用转换为派生类指针或引用
+
+
+
+**整形常数类型优化策略：高效的加载小常量的方式**
+
+先判断了是否能用指令集12位立即数表示，可以则生成一条 `addi.w $reg.print() $zero val`
+
+再用`load_large_int32`函数来解决超过12位情况，即生成一系列指令，来将完整的 32 位常量加载到 `reg` 中
+
+`append_inst`函数的第二位参数要求是**字符串vector**
+
+```c
+// 简化示例，实际可能更复杂
+void CodeGen::append_inst(InstructionType opcode, const std::vector<std::string>& operands) {
+    std::string instruction_line;
+    // 根据 opcode 构建指令助记符字符串
+    if (opcode == ADDI_WORD) {
+        instruction_line += "addi.w ";
+    }
+    // ... 其他指令
+
+    // 拼接操作数
+    for (size_t i = 0; i < operands.size(); ++i) {
+        instruction_line += operands[i];
+        if (i < operands.size() - 1) {
+            instruction_line += ", "; // 添加逗号分隔符
+        }
+    }
+    instruction_line += "\n"; // 添加换行符
+
+    // 将完整的指令行字符串添加到内部列表
+    generated_assembly_code_.push_back(instruction_line);
+}
+```
+
+
+
+**全局变量生成代码策略：**
+
+生成一条**加载地址**的伪指令（例如 `la.local`）。这条指令的功能是将**全局变量 `global` 的内存地址**计算出来并存入目标寄存器 `reg`。**全局变量的地址在程序链接时才确定，因此需要特定的寻址方式**
+
+
+
+**栈上变量（或一般内存位置）生成代码策略：**
+
+如果 `val` 既不是常量整数也不是全局变量，则它是一个局部变量，通常存储在当前函数的栈帧上，或者是一个需要从内存中加载的值
+
+调用`load_from_stack_to_greg`
+
+
+
+
+
+
+
 
 
 * **`load_large_int32`**
+  * **作用：**将一个 32 位但无法用 12 位立即数直接表示的整数值 (`int32_t val`)，加载到一个指定的 LoongArch64 通用寄存器 (`const Reg& reg`) 中
 
 ```c
 void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
@@ -1095,9 +1158,40 @@ void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
 }
 ```
 
+取高20位，如果 `val` 被视为有符号数，进行符号扩展
+
+取低12位，`val`与`0x00000FFF`做位与运算
+
+`lu12i.w` 将 `high_20` 这个 20 位立即数**左移 12 位**，**低 12 位是 `0`**，然后写入 `$reg`
+
+（LoongArch64 的 `lu12i.w` 实际上是把一个 `imm20` 放入 `{reg[31:12], 12'b0}` 这样的形式，并非直接左移。）
+
+`ori $reg, $reg, low_12` 这条指令将 `$reg` 的当前值与 `low_12` 进行**位或**操作
+
+
+
+`$reg` 最终包含 `(high_20 << 12) | low_12`，这正是原始的 `val` 值
+
+注意此处根据指令的有无符号的不同，采样时使用了`int32_t`和`uint32_t`
+
+之所以12位有优化策略，而不采用32位策略解决，是因为：
+
+​	1.	指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
+
+​	2.	如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这		   会增加指令的存储空间、传输带宽和功耗	
+
+​	3.	定长指令有助于流水线处理，但会限制立即数的大小
+
+
+
+
+
+
+
 
 
 * **`load_large_int64`**
+  * **作用：**将一个 64 位整数值 (`int64_t val`) 加载到一个指定的 LoongArch64 通用寄存器 (`const Reg& reg`) 中
 
 ```c
 void CodeGen::load_large_int64(int64_t val, const Reg& reg) {
@@ -1113,14 +1207,35 @@ void CodeGen::load_large_int64(int64_t val, const Reg& reg) {
 }
 ```
 
+分别取低32位和高32位，通过调用`load_large_int32(low_32, reg)`低32位先加载进寄存器低32位 **[31:1]位**
+
+
+
+`high_32_low_20 = (high_32 << 12) >> 12` **在不改变 20 位有效位的情况下，将原来最高12位清空，对最高位进行符号扩展，使其成为一个合法的 20 位有符号数**
+
+`LU32I.D reg, high_32_low_20`将一个 20 位带符号立即数 (si20) 左移 32 位后，存入目标寄存器的 **[51:32] 位**
+
+`LU52I.D reg, reg, high_32_high_12`将一个 12 位带符号立即数 (si12) 左移 52 位后，存入目标寄存器的 **[63:52] 位**
+
+
+
+
+
+
+
 
 
 * **`load_from_stack_to_greg`**
+  * **作用：**生成汇编指令，将一个位于栈帧（stack frame）中的值，加载到一个指定的通用寄存器（`const Reg& reg`）中
+
 
 ```c
 void CodeGen::load_from_stack_to_greg(Value* val, const Reg& reg) {
+  // 从一个上下文的映射表（offset_map）中，根据给定的 val 查找它在栈上预先计算好的偏移量。这个偏移量是相对于帧指针 $fp 的
     auto offset = context.offset_map.at(val);
+  // 转换为字符串`offset_str`，方便后面生成汇编指令文本
     auto offset_str = std::to_string(offset);
+  // 获取这个值的类型信息（比如是 int1、int32 还是指针），这决定了应该使用哪种宽度的加载指令
     auto* type = val->get_type();
     if (IS_IMM_12(offset)) {
         if (type->is_int1_type()) {
@@ -1149,9 +1264,50 @@ void CodeGen::load_from_stack_to_greg(Value* val, const Reg& reg) {
 }
 ```
 
+该函数从栈帧上加载局部变量、参数等，需要进行**内存地址计算**。通过**帧指针（Frame Pointer, `$fp`）** 加上一个**偏移量(offset)**来实现
+
+通过映射表获取偏移量，**偏移量的位数是否超过12位来决定寻址方式**
+
+再判断数据本身类型，来决定采用具体的指令集指令是什么—— 字节、字、双字	`ld.b ld.w ld.d`
+
+
+
+对于偏移量庞大的情况（超过12位位宽）：**调用之前的`load_large_int64`函数处理，将精确内存地址加载进目标寄存器**
+
+**奇怪：为什么?**
+
+```c
+append_inst(ADD DOUBLE, { reg.print(), "$fp", reg.print() });
+        if (type->is_int1_type()) {
+            append_inst(LOAD BYTE, { reg.print(), reg.print(), "0" });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(LOAD WORD, { reg.print(), reg.print(), "0" });
+        }
+        else { // Pointer
+            append_inst(LOAD DOUBLE, { reg.print(), reg.print(), "0" });
+        }
+
+
+为什么多了append_inst(ADD DOUBLE, { reg.print(), "$fp", reg.print() });这一行
+而不直接ifelse里{ reg.print(), "$fp", reg.print() }
+```
+
+`ld.w 目标寄存器, 基地址寄存器, 立即数偏移量`
+
+**因此如果有三个寄存器那么就是不符合龙芯架构即不合法的**
+
+
+
+
+
+
+
 
 
 * **`store_from_greg`**
+  * **作用：**将位于指定通用寄存器中的值，存储到它在栈帧中对应的内存位置，跟`load_from_stack_to_greg`数据流动方向相反
+
 
 ```c
 void CodeGen::store_from_greg(Value* val, const Reg& reg) {
@@ -1186,9 +1342,25 @@ void CodeGen::store_from_greg(Value* val, const Reg& reg) {
 }
 ```
 
+`auto addr = Reg::t(8);`**引入了一个新的临时寄存器** `addr`（这里具体用了 `$t8`）
+
+**为什么不能直接用 `reg`？** 在 `load` 函数中，我们可以直接用目标寄存器 `reg` 来计算地址，因为 `reg` 里的旧值（可能是垃圾值）反正要被从内存加载进来的新值覆盖。但在 `store` 函数中，**`reg` 里存放着我们要存储的宝贵数据**！如果我们用 `reg` 来计算地址 (`add.d reg, $fp, reg`)，就会把里面的数据给破坏掉，那我们还存什么呢？
+
+所以，必须使用一个“干净”的临时寄存器 `addr` 来专门负责计算最终的目标内存地址
+
+
+
+
+
+
+
+
+
 
 
 * **`load_to_freg`**
+  * **作用：**将一个浮点类型的 `Value` 加载到指定的浮点寄存器`freg`中
+
 
 ```c
 void CodeGen::load_to_freg(Value* val, const FReg& freg) {
@@ -1213,9 +1385,31 @@ void CodeGen::load_to_freg(Value* val, const FReg& freg) {
 }
 ```
 
+**先判断是否是`ConstantFP`浮点数常量，如果是，取值然后调用`load_float_imm`处理，来避免访问内存**
+
+当浮点数是一个常量时，它并不存在于栈上。如果每次遇到常量都先把它存到内存，再从内存加载回寄存器，效率会很低。因此，设计一个更优的策略是直接将这个常量值“ materialize ”（物化）到浮点寄存器中。这通常通过将常量的二进制表示先加载到通用寄存器，然后再移动到浮点寄存器来实现。`load_float_imm` 这个辅助函数就是为此设计的
+
+
+
+变量情况对应存在栈帧上，根据偏移量采用寻址方式
+
+`fld.s`来加载浮点数
+
+其中新增寄存器来存放地址，因为目标地址`freg`是浮点寄存器，无法存储整形地址
+
+
+
+
+
+
+
+
+
 
 
 * **`load_float_imm`**
+  * **作用：**直接加载浮点立即数常量到浮点寄存器
+
 
 ```c
 void CodeGen::load_float_imm(float val, const FReg& r) {
@@ -1225,9 +1419,41 @@ void CodeGen::load_float_imm(float val, const FReg& r) {
 }
 ```
 
+`reinterpret_cast<int32_t*>`强制类型转换：
+
+告诉编译器“不要管这里原来是什么类型，现在就把它当作一个指向32位整数的指针来看待
+
+`&val`: 获取输入的 `float` 型常量 `val` 的内存地址
+
+`*...`: 对这个被“重新解释”过的指针进行解引用，读取32位二进制位，并存入给`bytes`
+
+最后将临时寄存器中的32位数完整拷贝到浮点寄存器
+
+
+
+**过程举例：**
+
+1. `reinterpret_cast`: 让我们得到了 `3.14f` 的 **IEEE 754 二进制位模式**，也就是 `0x4048F5C3`。
+2. `load_large_int32`: 让我们把 `0x4048F5C3` 这个位模式加载进了**通用寄存器 `$t8`**。
+   - 此时，如果 CPU 的**整数运算单元**去看 `$t8`，它会认为这里面的值是一个巨大的整数：`1,078,523,331`。
+3. `movgr2fr.w $f0, $t8` (这就是代码里的 `GR2FR WORD`):
+   - 这条指令的含义是：“**按位复制**！把 `$t8` 里的32个二进制位，一个不多一个不少，原封不动地搬到浮点寄存器 `$f0` 里。”
+   - 执行后，`$f0` 寄存器里的内容也变成了 `0x4048F5C3`。
+   - 现在，当 CPU 的**浮点运算单元 (FPU)** 去看 `$f0` 时，它会按照 IEEE 754 浮点数标准来**解释 (interpret)** 这串位模式，并得出结论：“哦，这代表的是浮点数 `3.14f`。”
+
+
+
+
+
+
+
+
+
 
 
 * **`store_from_freg`**
+  * **作用：**将一个位于指定**浮点寄存器 (`FReg`)** 中的值，**存储**到其在函数栈帧中对应的内存位置
+
 
 ```c
 void CodeGen::store_from_freg(Value* val, const FReg& r) {
@@ -1244,6 +1470,12 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
     }
 }
 ```
+
+
+
+
+
+
 
 
 
