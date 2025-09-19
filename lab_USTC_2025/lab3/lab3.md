@@ -1046,6 +1046,123 @@ $fp = 0x1000
 
 #### 1.2.2 API源码解读
 
+* **`codegen.hpp: context_struct`**
+
+```c
+        struct {
+            /* 随着ir遍历设置 */
+            Function *func{nullptr};    // 当前函数
+            Instruction *inst{nullptr}; // 当前指令
+            /* 在allocate()中设置 */
+            unsigned frame_size{0}; // 当前函数的栈帧大小
+            std::unordered_map<Value *, int> offset_map{}; // 指针相对 fp 的偏移
+
+            void clear() {
+                func = nullptr;
+                inst = nullptr;
+            frame_size = 0;
+            offset_map.clear();
+        }
+
+    } context;
+```
+
+
+
+
+
+
+
+
+
+* **`allocate`**
+  * **作用：**计算一个函数所需的总栈帧大小，并为所有需要存储在栈上的值（包括函数参数、指令的计算结果以及 `alloca` 指令分配的内存）确定其相对于帧指针 (`$fp`) 的精确偏移量
+
+```c
+void CodeGen::allocate() {
+    // 备份 $ra $fp
+    unsigned offset = PROLOGUE_OFFSET_BASE;
+
+    // 为每个参数分配栈空间
+    for (auto &arg : context.func->get_args()) {
+        auto size = arg.get_type()->get_size();
+        offset = ALIGN(offset + size, size);
+        context.offset_map[&arg] = -static_cast<int>(offset);
+    }
+
+    // 为指令结果分配栈空间
+    for (auto &bb : context.func->get_basic_blocks()) {
+        for (auto &instr : bb.get_instructions()) {
+            // 每个非 void 的定值都分配栈空间
+            if (not instr.is_void()) {
+                auto size = instr.get_type()->get_size();
+                offset = ALIGN(offset + size, size);
+                context.offset_map[&instr] = -static_cast<int>(offset);
+            }
+            // alloca 的副作用：分配额外空间
+            if (instr.is_alloca()) {
+                auto *alloca_inst = static_cast<AllocaInst *>(&instr);
+                auto alloc_size = alloca_inst->get_alloca_type()->get_size();
+                offset += alloc_size;
+            }
+        }
+    }
+
+    // 分配栈空间，需要是 16 的整数倍
+    context.frame_size = ALIGN(offset, PROLOGUE_ALIGN);
+}
+```
+
+**不仅先要给所有参数(局部变量)先进行预留空间，还要给每个基本块的每条指令的返回值预留空间，同时给alloca指令额外分配一些空间**
+
+**alloca(a),是先额外分配空间再为a划分空间，其中a划分空间可能和新增加空间不在一个位置**
+
+
+
+`PROLOGUE_OFFSET_BASE` 是一个初始偏移量。它通常预留了保存 `$ra` (返回地址) 和旧 `$fp` (帧指针) 的空间。例如，如果每个占8字节，`PROLOGUE_OFFSET_BASE` 可能就是16
+
+
+
+遍历当前函数的所有**参数 (`arg`)**
+
+`size = arg.get_type()->get_size()`: 获取参数类型所需的大小（例如，`int` 是4字节，`float` 是4字节，指针是8字节）
+
+`offset = ALIGN(offset + size, size)`: 
+
+1. `offset + size`: 先将 `offset` 增加 `size`，为当前参数“腾出”空间。
+2. `ALIGN(..., size)`: 然后对这个新的 `offset` 值进行对齐。例如，如果当前 `offset` 是17，要放一个4字节的 `int`，`17+4=21`，`ALIGN(21, 4)` 会得到24，**确保这个 `int` 的结束地址是4的倍数**
+
+`context.offset_map[&arg] = -static_cast<int>(offset)`: 将计算出的最终偏移量存入 `offset_map`
+
+**值为负数，`$fp` + 负数 作为偏移起始位置**
+
+
+
+遍历函数中所有基本块的所有指令
+
+`if (not instr.is_void())`: 如果一条指令会产生一个值（例如，`add`, `load`），那么这个值就需要一个地方存放。这里的逻辑和为参数分配空间完全一样，为这个指令结果在栈上预留位置并记录偏移量
+
+`if (instr.is_alloca())`: 这是一个特殊情况。`alloca` 指令本身会产生一个值（一个指向新分配空间的指针），这个值的位置已经在上面的 `if` 块中处理了。但 `alloca` 还有一个**副作用**：**它要求在栈上额外划出一块连续的内存**
+
+- `auto alloc_size = alloca_inst->get_alloca_type()->get_size()`: 获取 `alloca` 要求分配的内存大小
+- `offset += alloc_size`: 直接将 `offset` 增加 `alloc_size`，为这块内存预留空间。**这部分空间没有对齐，因为 `alloca` 分配的是一块连续的原始内存**
+
+
+
+在遍历完所有需要栈空间的值之后，`offset` 记录了总共需要的空间大小
+
+`ALIGN(offset, PROLOGUE_ALIGN)`: 最后，根据 ABI 的要求，将总大小向上对齐到一个固定的边界，通常是16字节 (`PROLOGUE_ALIGN`)
+
+将这个最终对齐后的大小存入 `context.frame_size`，供函数序言（prologue）使用，以移动栈指针 `$sp` 来开辟整个栈帧
+
+
+
+
+
+
+
+
+
 * **`load_to_greg`**
   * **作用**：将一个给定中间 IR 层面的值 (`Value* val`) 加载到 LoongArch64 架构的一个指定的通用寄存器 (`const Reg& reg`) 中
 
@@ -1481,7 +1598,9 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 
 
 
-## 2.阶段2：编译器后端
+
+
+## 2.阶段2：编译器后端实验具体实现
 
 一个典型的编译器后端从中间代码获取信息，进行**活跃变量分析、寄存器分配、指令选择、指令优化**等一系列流程，最终生成高质量的后端代码。
 
@@ -1503,3 +1622,395 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 **实验内容**
 
 补全 `src/codegen/CodeGen.cpp` 中的 TODO，并按需修改 `include/codegen/CodeGen.hpp` 等文件，使编译器能够生成正确的汇编代码。
+
+
+
+
+
+
+
+* **`CodeGen::gen_epilogue()`**
+
+```c++
+///备份的寄存器恢复，栈帧销毁，返回调用者
+void CodeGen::gen_epilogue() {
+    // TODO 根据你的理解设定函数的 epilogue
+    auto str_frame_size = std::to_string(context.frame_size);
+    if(IS_IMM_12(context.frame_size)){
+        append_inst("addi.d $sp, $sp, " + str_frame_size);
+        append_inst("ld.d $fp, $sp, -16");
+        append_inst("ld.d $ra, $sp, -8");
+        append_inst("jr $ra");
+    } else {
+        load_large_int64(context.frame_size, Reg::t(0));
+        append_inst("add.d $sp, $sp, $t0");
+        append_inst("ld.d $fp, $sp, -16");
+        append_inst("ld.d $ra, $sp, -8");
+        append_inst("jr $ra");
+    }
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+此函数参考已有`CodeGen::gen_prologue()`:
+
+`static_cast<int>` **向下转型为int型**，完全是为了**在对一个无符号数进行取反操作之前，先将其安全地转换为有符号数**
+
+因此在栈回收时就不需要了
+
+我突然发现
+
+```c++
+        append_inst("sub.d $sp, $sp, $t0");
+        append_inst("add.d $fp, $sp, $t0");
+```
+
+其实也可以替换为
+
+```c++
+        append_inst("addi.d $fp, $sp, 0");
+        append_inst("sub.d $sp, $sp, $t0");
+```
+
+
+
+```c++
+void CodeGen::gen_prologue() {
+    // 寄存器备份及栈帧设置
+    if (IS_IMM_12(-static_cast<int>(context.frame_size))) {
+        append_inst("st.d $ra, $sp, -8");
+        append_inst("st.d $fp, $sp, -16");
+        append_inst("addi.d $fp, $sp, 0");
+        append_inst("addi.d $sp, $sp, " +
+                    std::to_string(-static_cast<int>(context.frame_size)));
+    } else {
+        load_large_int64(context.frame_size, Reg::t(0));
+        append_inst("st.d $ra, $sp, -8");
+        append_inst("st.d $fp, $sp, -16");
+        append_inst("sub.d $sp, $sp, $t0");
+        append_inst("add.d $fp, $sp, $t0");
+    }
+
+    // 将函数参数转移到栈帧上
+    int garg_cnt = 0;
+    int farg_cnt = 0;
+    for (auto &arg : context.func->get_args()) {
+        if (arg.get_type()->is_float_type()) {
+            store_from_freg(&arg, FReg::fa(farg_cnt++));
+        } else { // int or pointer
+            store_from_greg(&arg, Reg::a(garg_cnt++));
+        }
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_ret()`**
+
+  **带返回值的返回**：`ret <type> <value>`，例如 `ret i32 %1`。
+
+  **无返回值的返回**：`ret void`。
+
+```c++
+///函数返回，思考如何处理返回值、寄存器备份，如何返回调用者地址    
+void CodeGen::gen_ret() {
+    // TODO 
+    // 准备好返回值，然后调用写好的 gen_epilogue 来处理所有退出的清理工作
+    auto* ret_inst = static_cast<ReturnInst*>(context.inst);
+    if(ret_inst->is_void_ret()){
+        append_inst("addi.d $a0, $zero, $zero");    
+    }
+    else{
+        auto* ret_val = ret_inst->get_operand(0);
+        if(ret_val->get_type()->is_float_type()){
+            load_to_freg(ret_val, FReg::fa(0));
+        }
+        else{
+            load_to_greg(ret_val, Reg::a(0));
+        }
+    }
+    gen_epilogue();
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+先获取返回指令的指针`ReturnInst*`，可见有判断`bool is_void_ret() const;`
+
+```c++
+class ReturnInst : public BaseInst<ReturnInst> {
+    friend BaseInst<ReturnInst>;
+
+  private:
+    ReturnInst(Value *val, BasicBlock *bb);
+
+  public:
+    static ReturnInst *create_ret(Value *val, BasicBlock *bb);
+    static ReturnInst *create_void_ret(BasicBlock *bb);
+    bool is_void_ret() const;
+
+    virtual std::string print() override;
+};
+```
+
+若为`void`，则返回值寄存器高效清零`addi.d $a0, $zero, $zero`
+
+`get_operand(0)` 是一个在编译器后端代码中非常常见且重要的函数，它的核心作用是**获取一条指令的第一个操作数**
+
+通过其获得`return val`的值，通过类型判断区分是浮点寄存器还是整形寄存器
+
+最后释放栈帧
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_br()`**
+
+  **无条件跳转 (`br label %dest`)**: 这是一个简单的、直接跳转到另一个基本块的指令。
+
+  **条件跳转 (`br i1 <cond>, label %iftrue, label %iffalse`)**: 这条指令会判断一个布尔条件，并根据条件的真假跳转到两个可能的目标基本块之一。这是构成 `if-then-else` 语句的基础。
+
+  ```c++
+  void CodeGen::gen_br() {
+      auto *branchInst = static_cast<BranchInst *>(context.inst);
+      if (branchInst->is_cond_br()) {
+          // TODO 补全条件跳转的情况
+          auto *cond = branchInst->get_operand(0);
+          auto *truebb = static_cast<BasicBlock *>(branchInst->get_operand(1));
+          auto *falsebb = static_cast<BasicBlock *>(branchInst->get_operand(2));
+          load_to_greg(cond, Reg::t(0));
+          append_inst("bnez " + Reg::t(0).print() + ", " + label_name(true_bb));
+          append_inst("b " + label_name(false_bb));
+          // throw not_implemented_error{__FUNCTION__};
+      } else {
+          auto *branchbb = static_cast<BasicBlock *>(branchInst->get_operand(0));
+          append_inst("b " + label_name(branchbb));
+      }
+  }
+  ```
+
+  获取指令的三个操作数
+
+  根据`cond`实现跳转
+
+
+
+​	！！！析构版本的跳转指令，消除**PHI (Φ) 指令**
+
+​	**核心思想：**在执行跳转之前，提前将 PHI 指令需要的值“移动”到 PHI 指令结果的最终存储位置，即**Briggs算法**
+
+```c++
+void CodeGen::gen_br() {
+    auto* branchInst = static_cast<BranchInst*>(context.inst);
+
+    // 辅助函数，用于处理到某个目标块的 PHI 指令
+    auto handle_phi_for_target = [&](BasicBlock* target_bb) {
+        // PHI 指令必须位于基本块的开头，一旦遇到非 PHI 指令即可停止。
+        for (auto& instr : target_bb->get_instructions()) {
+            if (!instr.is_phi()) {
+                break;
+            }
+
+            auto* phiInst = static_cast<PhiInst*>(&instr);
+            // 遍历 PHI 指令的操作数对 [value, basic_block]
+            for (int i = 0; i < phiInst->get_num_operands(); i += 2) {
+                auto* incoming_value = phiInst->get_operand(i);
+                auto* incoming_block = static_cast<BasicBlock*>(phiInst->get_operand(i + 1));
+
+                // 检查这个 PHI 的输入来源是否是我们当前所在的块
+                if (incoming_block == context.inst->get_parent()) {
+                    // 如果是，就执行赋值：phi_result = incoming_value
+                    // 这就是消除 PHI 的核心：将选择逻辑转换为跳转前的移动/赋值操作。
+                    if (incoming_value->get_type()->is_float_type()) {
+                        load_to_freg(incoming_value, FReg::ft(8));
+                        store_from_freg(phiInst, FReg::ft(8));
+                    } else {
+                        load_to_greg(incoming_value, Reg::t(8));
+                        store_from_greg(phiInst, Reg::t(8));
+                    }
+                    // 找到匹配的来源后，这个PHI指令的处理就完成了
+                    break;
+                }
+            }
+        }
+    };
+
+    if (branchInst->is_cond_br()) {
+        // --- 条件跳转 ---
+        auto* cond = branchInst->get_operand(0);
+        auto* true_bb = static_cast<BasicBlock*>(branchInst->get_operand(1));
+        auto* false_bb = static_cast<BasicBlock*>(branchInst->get_operand(2));
+
+        // 1. 在跳转之前，处理通往 true 分支的 PHI 指令
+        handle_phi_for_target(true_bb);
+
+        // 2. 在跳转之前，处理通往 false 分支的 PHI 指令
+        handle_phi_for_target(false_bb);
+
+        // 3. 加载条件并生成跳转指令
+        load_to_greg(cond, Reg::t(0));
+        // 使用 bstrpick 确保条件值是干净的 0 或 1
+        append_inst("bstrpick.d $t1, $t0, 0, 0");
+        append_inst("bnez $t1, " + label_name(true_bb));
+        append_inst("b " + label_name(false_bb));
+
+    } else {
+        // --- 无条件跳转 ---
+        auto* target_bb = static_cast<BasicBlock*>(branchInst->get_operand(0));
+
+        // 1. 在跳转之前，处理通往目标块的 PHI 指令
+        handle_phi_for_target(target_bb);
+
+        // 2. 生成无条件跳转指令
+        append_inst("b " + label_name(target_bb));
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_float_binary()`**
+
+```c++
+void CodeGen::gen_float_binary() {
+    // TODO 浮点类型的二元指令
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    load_to_freg(context.inst->get_operand(1), FReg::ft(1));
+
+     switch (context.inst->get_instr_type()){
+        case Instruction::fadd:
+            append_inst("fadd.s $ft2, $ft0, $ft1");
+            break;
+        case Instruction::fsub:
+            append_inst("fsub.s $ft2, $ft0, $ft1");
+            break;
+        case Instruction::fmul:
+            append_inst("fmul.s $ft2, $ft0, $ft1");
+            break;
+        case Instruction::fdiv:
+            append_inst("fdiv.s $ft2, $ft0, $ft1");
+            break;
+        default:
+            assert(false);
+    }
+
+    store_from_freg(context.inst, FReg::ft(2));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+仿照整形的二元运算判别：
+
+```c++
+void CodeGen::gen_binary() {
+    // 分别将左右操作数加载到 $t0 $t1
+    load_to_greg(context.inst->get_operand(0), Reg::t(0));
+    load_to_greg(context.inst->get_operand(1), Reg::t(1));
+    // 根据指令类型生成汇编
+    switch (context.inst->get_instr_type()) {
+    case Instruction::add:
+        output.emplace_back("add.w $t2, $t0, $t1");
+        break;
+    case Instruction::sub:
+        output.emplace_back("sub.w $t2, $t0, $t1");
+        break;
+    case Instruction::mul:
+        output.emplace_back("mul.w $t2, $t0, $t1");
+        break;
+    case Instruction::sdiv:
+        output.emplace_back("div.w $t2, $t0, $t1");
+        break;
+    default:
+        assert(false);
+    }
+    // 将结果填入栈帧中
+    store_from_greg(context.inst, Reg::t(2));
+}
+```
+
+但此处`output.emplace_back`在本次实验中被封装成了`append.list`，因此我直接使用了`append.list`
+
+```c++
+    template <class... Args> void append_inst(Args... arg) {
+        output.emplace_back(arg...);
+    }
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_alloca()`**
+
+在 `allocate()` 阶段，已经**规划**好了 `alloca` 指令所需的所有内存空间。那么 `gen_alloca` 在运行时需要**执行赋值操作**：计算出那块预留空间的**起始地址**，并将这个地址**存入 `alloca` 指令自己产生的那个指针定值中**
+
+```c++
+void CodeGen::gen_alloca() {
+    /* 我们已经为 alloca 的内容分配空间，在此我们还需保存 alloca
+     * 指令自身产生的定值，即指向 alloca 空间起始地址的指针
+     */
+    // TODO 将 alloca 出空间的起始地址保存在栈帧上
+    auto *alloca_inst = static_cast<AllocaInst *>(context.inst);
+    auto ptr_offset = context.offset_map.at(alloca_inst);
+    auto alloc_size = alloca_inst->get_alloca_type()->get_size();
+    int content_offset = ptr_offset - alloc_size;
+    auto content_offset_str = std::to_string(content_offset);
+    append_inst("addi.d " + Reg::t(1).print() + ", $fp, " + content_offset_str);
+
+    store_from_greg(alloca_inst, Reg::t(1));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+**根据 allocate() 的布局逻辑，`alloca` 请求的内存空间紧跟在存放`alloca`指针自身的空间之后**
+
+先计算指针偏移量，并获取其分配空间大小
+
+预留空间的起始偏移量 = 指针的偏移量 - 请求的内存大小 (如-32 - 4 = -36)
+
+`addi.d $t1, $fp, -36` 
+
+最后调用`store_from_greg` 将预留空间的起始偏移量计算得到的内存实际地址`$fp - 36`存储到内存的alloca_inst起始位置`$fp - 32`
