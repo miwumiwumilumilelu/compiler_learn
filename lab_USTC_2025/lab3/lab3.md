@@ -29,29 +29,6 @@
 
 ## 1.阶段1：warmup预热实验
 
-> .
-> ├── ...
-> ├── include
-> │   ├── common
-> │   └── codegen/*
-> └── tests
->     ├── ...
->     └── 3-codegen
->         └── warmup
->             ├── CMakeLists.txt
->             ├── ll_cases          <- 需要翻译的 ll 代码
->             └── stu_cpp           <- 学生需要编写的汇编代码手动生成器
-
-**实验内容**
-
-实验在 `tests/3-codegen/warmup/ll_cases/` 目录下提供了六个 `.ll` 文件。
-
-需要在 `tests/3-codegen/warmup/stu_cpp/` 目录中，依次完成 `assign_codegen.cpp`、`float_codegen.cpp`、`global_codegen.cpp`、`function_codegen.cpp`、`icmp_codegen.cpp` 和 `fcmp_codegen.cpp` 六个 C++ 程序中的 TODO。
-
-这六个程序运行后应该能够生成 `tests/3-codegen/warmup/ll_cases/` 目录下六个 `.ll` 文件对应的汇编程序。
-
-
-
 ### 1.1 初识龙芯汇编和GNU汇编伪指令
 
 #### 1.1.1 浮点数的 **IEEE 754 浮点数标准**
@@ -573,58 +550,6 @@ main:
 2. **编译器后端**：GCC 需要一个 LoongArch 的“后端”（backend）。这个后端负责将 GCC 编译器前端生成的中间表示（IR）代码转换成 LoongArch 的机器指令。它要了解 LoongArch 的寄存器约定、函数调用约定（ABI）、指令特性等，以便生成高效、正确的 LoongArch 机器代码。
 3. **调试器支持**：GDB 需要了解 LoongArch 的寄存器布局、栈帧结构、指令集等，才能正确地调试运行在 LoongArch 平台上的程序。
 4. **C 库支持**：glibc 这样的标准 C 库也需要针对 LoongArch 架构进行编译和优化，提供系统调用接口和运行时支持。
-
-
-
-**浮点数转整数，整数转浮点的指令**
-
-在 LoongArch 架构中，浮点数和整数之间的转换指令主要有以下几类。这些指令通常遵循 IEEE 754 浮点数标准，并且会涉及到不同的舍入模式。
-
-**整数转浮点数指令 (Integer to Floating-Point)**
-
-这些指令将通用寄存器（或浮点寄存器中被视为整数的值）中的整数转换为浮点数格式，并存储到浮点寄存器中。
-
-- **`ffint.<fmt>.<size>`**: Floating-point Format Integer (signed)
-  - **作用**: 将浮点寄存器中存放的**有符号整数**（以 `.w` 或 `.d` 表示其位宽）转换为指定格式（`<fmt>`，如 `.s` 单精度、`.d` 双精度）的浮点数。
-  - **例子**:
-    - `ffint.s.w $ft0, $ft0`：将 `$ft0` 低 32 位中的 32 位有符号整数转换为单精度浮点数，结果存回 `$ft0`。
-    - `ffint.d.d $ft0, $ft0`：将 `$ft0` 中的 64 位有符号整数转换为双精度浮点数，结果存回 `$ft0`。
-- **`fufint.<fmt>.<size>`**: Floating-point Unsigned Integer
-  - **作用**: 与 `ffint` 类似，但处理的是**无符号整数**。
-
-**注意**: 通常整数会先通过 `movgr2fr.<size>` 指令从通用寄存器移动到浮点寄存器，然后再进行 `ffint` 转换。
-
-
-
- **浮点数转整数指令 (Floating-Point to Integer)**
-
-这些指令将浮点寄存器中的浮点数转换为整数格式，并存储到通用寄存器（或浮点寄存器中被视为整数的值）中。转换过程中涉及到舍入模式。
-
-- **`ftintrm.<size>.<fmt>`**: Floating-point to Integer Round to Minus Infinity (向下取整)
-  - **作用**: 将指定格式的浮点数（`<fmt>`）转换为指定位宽的整数（`<size>`），舍入模式为向负无穷大取整（floor）。
-  - **例子**: `ftintrm.w.s $ft0, $ft1`：将 `$ft1` 中的单精度浮点数向负无穷大取整后转换为 32 位整数，结果存入 `$ft0` 的低 32 位。
-- **`ftintrp.<size>.<fmt>`**: Floating-point to Integer Round to Plus Infinity (向上取整)
-  - **作用**: 舍入模式为向正无穷大取整（ceil）。
-- **`ftintrz.<size>.<fmt>`**: Floating-point to Integer Round to Zero (向零取整，截断)
-  - **作用**: 舍入模式为向零取整（truncate），即简单地丢弃小数部分。
-  - **例子**: `ftintrz.w.s $ft0, $ft1`：将 `$ft1` 中的单精度浮点数向零取整后转换为 32 位整数，结果存入 `$ft0` 的低 32 位。
-- **`ftintrn.<size>.<fmt>`**: Floating-point to Integer Round to Nearest (四舍五入到最近的整数)
-  - **作用**: 舍入模式为四舍五入到最近的整数，如果到两个整数距离相等，通常选择偶数。
-
-**注意**: 转换后的整数值通常会先存储到浮点寄存器中，如果需要将其用于整数运算，还需要通过 `movfr2gr.<size>` 指令从浮点寄存器移动到通用寄存器。
-
-
-
- **寄存器之间数据移动指令 (Register Data Movement)**
-
-这些指令用于在通用寄存器和浮点寄存器之间**按位拷贝数据**，不进行数据格式转换，只是改变数据所在的寄存器类型。
-
-- **`movgr2fr.<size>`**: Move General-purpose Register to Floating-point Register
-  - **作用**: 将通用寄存器中的整数值按位拷贝到浮点寄存器。
-  - **例子**: `movgr2fr.w $ft0, $t0`：将 `$t0` 的低 32 位拷贝到 `$ft0` 的低 32 位。
-- **`movfr2gr.<size>`**: Move Floating-point Register to General-purpose Register
-  - **作用**: 将浮点寄存器中的值按位拷贝到通用寄存器。
-  - **例子**: `movfr2gr.w $t0, $ft0`：将 `$ft0` 的低 32 位拷贝到 `$t0` 的低 32 位。
 
 
 
@@ -1593,6 +1518,37 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 
 
 
+
+
+
+
+
+
+
+
+
+### 1.3 预热实验具体实现
+
+> .
+> ├── ...
+> ├── include
+> │   ├── common
+> │   └── codegen/*
+> └── tests
+>  ├── ...
+>  └── 3-codegen
+>      └── warmup
+>          ├── CMakeLists.txt
+>          ├── ll_cases          <- 需要翻译的 ll 代码
+>          └── stu_cpp           <- 学生需要编写的汇编代码手动生成器
+
+**实验内容**
+
+实验在 `tests/3-codegen/warmup/ll_cases/` 目录下提供了六个 `.ll` 文件。
+
+需要在 `tests/3-codegen/warmup/stu_cpp/` 目录中，依次完成 `assign_codegen.cpp`、`float_codegen.cpp`、`global_codegen.cpp`、`function_codegen.cpp`、`icmp_codegen.cpp` 和 `fcmp_codegen.cpp` 六个 C++ 程序中的 TODO。
+
+这六个程序运行后应该能够生成 `tests/3-codegen/warmup/ll_cases/` 目录下六个 `.ll` 文件对应的汇编程序。
 
 
 
