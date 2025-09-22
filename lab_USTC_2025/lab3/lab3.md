@@ -33,7 +33,9 @@
 
 #### 1.1.1 浮点数的 **IEEE 754 浮点数标准**
 
-`ffint.s.w $fd, $fj`
+```
+ffint.s.w $fd, $fj
+```
 
 - 行为：选择**浮点寄存器** `$fj` 中的整数型定点数转换为单精度浮点数，得到的单精度浮点数写入到浮点寄存器 `$fd` 中
 
@@ -41,7 +43,9 @@
 
 在执行下面的指令前，`$ft0` 寄存器的值为 `0x0000_0000_0000_0008`
 
-`ffint.s.w $ft1, $ft0`
+```
+ffint.s.w $ft1, $ft0
+```
 
 执行后，`$ft1` 寄存器的值为?
 
@@ -171,7 +175,7 @@ main_exit:
       st.d $ra, $sp, -8
       st.d $fp, $sp, -16
       addi.d $fp, $sp, 0
-      addi.d $sp, $sp, -16	
+      addi.d $sp, $sp, -16  
   ```
 
   
@@ -625,9 +629,8 @@ class CodeGen {
 
 指令类`ASMInstruction`是用来描绘一行汇编指令，在 `CodeGen` 中以 `std::list` 形式组织
 
-`std::list<ASMInstruction> output;`
-
-```c
+```
+std::list<ASMInstruction> output;
 struct ASMInstruction {
     enum InstType {
         Instruction,    // 汇编指令
@@ -666,21 +669,22 @@ struct FReg {
     static FReg ft(unsigned i); // 得到寄存器 $ftN
     static FReg fs(unsigned i); // 得到寄存器 $fsN
 };
+bool operator==(const FReg &other);
 ```
-
-`bool operator==(const FReg &other);`
 
 这是对 `==`（等于）运算符的重载。它允许你直接比较两个 `FReg` 对象是否相等,如 (" `if (r1 = r2) `")
 
-`std::string print() const;`
+```
+std::string print() const;
+```
 
 **`const` 关键字**：表示这个函数是一个“只读”操作，它不会修改 `FReg` 对象自身的 `id` 值
 
 后续还需要具体实现对应的映射关系 `$f0`——>  `$fa0`
 
-​	FReg(0)` 定义了寄存器 `$f0` 的实例，`print()` 的结果是 `"$fa0"`
+   FReg(0)` 定义了寄存器 `$f0` 的实例，`print()` 的结果是 `"$fa0"`
 
-​	为了获得 `$ft0` 的实例，你可以使用 `FReg(8)`，也可以使用更方便的`FReg::ft(0)`
+   为了获得 `$ft0` 的实例，你可以使用 `FReg(8)`，也可以使用更方便的`FReg::ft(0)`
 
 
 
@@ -688,7 +692,9 @@ struct FReg {
 
 * 框架带的辅助函数
 
-`load/store`
+```
+load/store
+```
 
 **用于方便地提取数据至寄存器和将寄存器数据保存至栈上**
 
@@ -725,7 +731,9 @@ class CodeGen{
 
 
 
-`append_inst()`
+```
+append_inst()
+```
 
 `append_inst()` 接口就是用来添加新的 `ASMInstruction`
 
@@ -753,7 +761,7 @@ append_inst("st.d", {"$ra", "$sp", "-8"});
 
 性能上，栈式分配不如寄存器分配，而在实现难度上，栈式分配要简单许多:
 
-​	寄存器分配没有了栈上变量的load到寄存器和结果store回栈上的过程，因此性能更好
+   寄存器分配没有了栈上变量的load到寄存器和结果store回栈上的过程，因此性能更好
 
 
 
@@ -838,7 +846,7 @@ main:
     addi.d $fp, $sp, 0
     addi.d $sp, $sp, -32
 
-								 +-------------------------+
+                                 +-------------------------+
                  |    调用者栈帧数据       |
                  +-------------------------+  <-- 0x1000  <-- $fp
                  |   备份的 $ra (8字节)    |
@@ -857,7 +865,7 @@ $sp = 0x0FE0  <-- 已更新!
 $fp = 0x1000
 ```
 
-2/	将 `a` 的地址 `0x0FE4` 存入为指针 `%op0` 分配的栈槽 (`$fp - 24`)
+2/  将 `a` 的地址 `0x0FE4` 存入为指针 `%op0` 分配的栈槽 (`$fp - 24`)
 
 ```c
     # %op0 = alloca i32
@@ -874,7 +882,7 @@ $fp = 0x1000
                  +-------------------------+  <-- 0x0FE8  ($fp - 24, 指针%op0的地址)
                  |    变量 a 的空间 (4字节)  |
                  +-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
-                 |  									    |
+                 |                                          |
                  +-------------------------+  <-- 0x0FE0  ($fp - 32) <-- $sp
                  |
           低地址 v
@@ -894,12 +902,12 @@ $fp = 0x1000
                  | 指针 %op0 (值为0x0FE4)  |
                  +-------------------------+  <-- 0x0FE8
                  |  变量 a 的值 (1)      |  <-- 内存被写入!
-      					+-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
-                 |  									    |
+                        +-------------------------+  <-- 0x0FE4  ($fp - 28, 变量a的地址)
+                 |                                          |
                  +-------------------------+  <-- 0x0FE0  ($fp - 32) <-- $sp
 ```
 
-4/ 	**指針解引用**`x = *p` 	 `ld.w $t0, $t0, 0`根据 `p` 或 `$t0` 中的地址，去拿回 `a` 的值
+4/  **指針解引用**`x = *p`    `ld.w $t0, $t0, 0`根据 `p` 或 `$t0` 中的地址，去拿回 `a` 的值
 
 ```c
     # %op1 = load i32, i32* %op0
@@ -934,7 +942,7 @@ $a0 = 1  <-- 已准备好返回值!
     ld.d $fp, $sp, -16
     jr $ra
       
-      					 +-------------------------+
+                         +-------------------------+
                  |    调用者栈帧数据       |
                  +-------------------------+  <-- 0x1000  <-- $sp, $fp
                  |   (main的栈帧已释放)    |
@@ -1218,11 +1226,11 @@ void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
 
 之所以12位有优化策略，而不采用32位策略解决，是因为：
 
-​	1.	指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
+   1.  指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
 
-​	2.	如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这		   会增加指令的存储空间、传输带宽和功耗	
+   2.  如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这        会增加指令的存储空间、传输带宽和功耗   
 
-​	3.	定长指令有助于流水线处理，但会限制立即数的大小
+   3.  定长指令有助于流水线处理，但会限制立即数的大小
 
 
 
@@ -1310,7 +1318,7 @@ void CodeGen::load_from_stack_to_greg(Value* val, const Reg& reg) {
 
 通过映射表获取偏移量，**偏移量的位数是否超过12位来决定寻址方式**
 
-再判断数据本身类型，来决定采用具体的指令集指令是什么—— 字节、字、双字	`ld.b ld.w ld.d`
+再判断数据本身类型，来决定采用具体的指令集指令是什么—— 字节、字、双字    `ld.b ld.w ld.d`
 
 
 
@@ -1320,22 +1328,21 @@ void CodeGen::load_from_stack_to_greg(Value* val, const Reg& reg) {
 
 ```c
 append_inst(ADD DOUBLE, { reg.print(), "$fp", reg.print() });
-        if (type->is_int1_type()) {
-            append_inst(LOAD BYTE, { reg.print(), reg.print(), "0" });
-        }
-        else if (type->is_int32_type()) {
-            append_inst(LOAD WORD, { reg.print(), reg.print(), "0" });
-        }
-        else { // Pointer
-            append_inst(LOAD DOUBLE, { reg.print(), reg.print(), "0" });
-        }
+        if (type->is_int1_type()) {
+            append_inst(LOAD BYTE, { reg.print(), reg.print(), "0" });
+        }
+        else if (type->is_int32_type()) {
+            append_inst(LOAD WORD, { reg.print(), reg.print(), "0" });
+        }
+        else { // Pointer
+            append_inst(LOAD DOUBLE, { reg.print(), reg.print(), "0" });
+        }
 
 
 为什么多了append_inst(ADD DOUBLE, { reg.print(), "$fp", reg.print() });这一行
 而不直接ifelse里{ reg.print(), "$fp", reg.print() }
+ld.w 目标寄存器, 基地址寄存器, 立即数偏移量
 ```
-
-`ld.w 目标寄存器, 基地址寄存器, 立即数偏移量`
 
 **因此如果有三个寄存器那么就是不符合龙芯架构即不合法的**
 
@@ -1624,8 +1631,8 @@ void CodeGen::gen_epilogue() {
 其实也可以替换为
 
 ```c++
-        append_inst("addi.d $fp, $sp, 0");
-        append_inst("sub.d $sp, $sp, $t0");
+        append_inst("addi.d $fp, $sp, 0");
+        append_inst("sub.d $sp, $sp, $t0");
 ```
 
 
@@ -1770,9 +1777,9 @@ class ReturnInst : public BaseInst<ReturnInst> {
 
 
 
-​	！！！析构版本的跳转指令，消除**PHI (Φ) 指令**
+   ！！！析构版本的跳转指令，消除**PHI (Φ) 指令**
 
-​	**核心思想：**在执行跳转之前，提前将 PHI 指令需要的值“移动”到 PHI 指令结果的最终存储位置，即**Briggs算法**
+   **核心思想：**在执行跳转之前，提前将 PHI 指令需要的值“移动”到 PHI 指令结果的最终存储位置，即**Briggs算法**
 
 ```c++
 void CodeGen::gen_br() {
@@ -1967,7 +1974,9 @@ void CodeGen::gen_alloca() {
 
 预留空间的起始偏移量 = 指针的偏移量 - 请求的内存大小 (如-32 - 4 = -36)
 
-`addi.d $t1, $fp, -36` 
+```
+addi.d $t1, $fp, -36
+```
 
 最后调用`store_from_greg` 将预留空间的起始偏移量计算得到的内存实际地址`$fp - 36`存储到内存的alloca_inst起始位置`$fp - 32`
 
@@ -2010,9 +2019,8 @@ void CodeGen::gen_load() {
         // throw not_implemented_error{__FUNCTION__};
     }
 }
+load ptr 寄存器
 ```
-
-`load ptr 寄存器`
 
 todo部分只需要给出单字节，字和双字的处理判断即可
 
@@ -2198,6 +2206,62 @@ void CodeGen::gen_zext() {
 
 * **`CodeGen::gen_call()`**
 
+```c++
+class CallInst : public BaseInst<CallInst> {
+    friend BaseInst<CallInst>;
+
+  protected:
+    CallInst(Function *func, std::vector<Value *> args, BasicBlock *bb);
+
+  public:
+    static CallInst *create_call(Function *func, std::vector<Value *> args,
+                                 BasicBlock *bb);
+    FunctionType *get_function_type() const;
+
+    virtual std::string print() override;
+};
+
+
+FunctionType *CallInst::get_function_type() const {
+    return static_cast<FunctionType *>(get_operand(0)->get_type());
+}
+
+Type *FunctionType::get_return_type() const { return result_; }
+```
+
+向下转换指针类型为`CallInst`子类，使用其子类函数`get_function_type()`来获取调用函数类型信息，接着`FunctionType`提供`get_return_type()`获取返回值类型，用来决定最终使用什么类型的寄存器来向内存存入数据
+
+先遍历获取函数需要传入的参数，存入不同类型寄存器，然后立即无条件跳转调用函数，并确保下一个PC指向内存地址为调用完成后的返回值，则使用`bl`
+
+`bl offs26`无条件跳转到目标地址处，同时将该指令的 `PC` 值加 4 的结果写入到 1 号通用寄存器 `$r1`（`$ra`）中
+
+```c++
+void CodeGen::gen_call() {
+    // TODO 函数调用，注意我们只需要通过寄存器传递参数，即不需考虑栈上传参的情况
+    auto *call_inst = static_cast<CallInst*>(context.inst);
+    int garg_cnt = 0;
+    int farg_cnt = 0;
+    for(auto& arg: call_inst -> get_operands()){
+        if(arg -> get_type() -> is_float_type()){
+            load_to_freg(arg, FReg::fa(farg_cnt++));
+        }
+        else if (arg -> get_type() -> is_interger_type() || arg -> get_type() -> is_pointer_type()){
+            load_to_greg(arg, Reg::a(garg_cnt++));
+        }
+    }
+    append_list("bl " + static_cast<Function*>(call_inst -> get_operand(0)) -> get_name());
+    if(call_inst -> get_function_type() -> get_return_type() -> is_float_type()){
+        store_from_freg(context.inst, FReg::fa(0));
+    }
+    else if(call_inst -> get_function_type() -> get_return_type() -> is_integer_type() || call_inst -> get_function_type() -> get_return_type() -> is_pointer_type()){
+        store_from_greg(context.inst, Reg::a(0));
+    }
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+
+
 
 
 
@@ -2211,6 +2275,72 @@ void CodeGen::gen_zext() {
 
 
 * **`CodeGen::gen_gep()`**
+
+```c++
+class GetElementPtrInst : public BaseInst<GetElementPtrInst> {
+    friend BaseInst<GetElementPtrInst>;
+
+  private:
+    GetElementPtrInst(Value *ptr, std::vector<Value *> idxs, BasicBlock *bb);
+
+  public:
+    static Type *get_element_type(Value *ptr, std::vector<Value *> idxs);
+    static GetElementPtrInst *create_gep(Value *ptr, std::vector<Value *> idxs,
+                                         BasicBlock *bb);
+    Type *get_element_type() const;
+
+    virtual std::string print() override;
+};
+```
+
+进行内存地址计算，需要考虑到偏移量、起始地址、几维
+
+`%result = getelementptr <type>, <ptr_type> <base_ptr>, <index_type> <idx1>, <index_type> <idx2>, ...`
+
+- **`<base_ptr>`**: 这是计算的起点，一个指针，我们称之为**基地址**。
+- **`<idx1>`, `<idx2>`, ...**: 这些是索引，用于在基地址的基础上进行偏移。每一个索引都会深入一层类型结构。
+
+`最终地址 = 基地址 + 索引1 × 单位大小1 + 索引2 × 单位大小2 + ...`
+
+```c++
+void CodeGen::gen_gep() {
+    // TODO 计算内存地址
+    auto* gepInst = static_cast<GetElementPtrInst*>(context.inst);
+    auto* base = gepInst->get_operand(0);
+    auto* op1 = gepInst->get_operand(1);
+    load_to_greg(base, Reg::t(0));
+    load_to_greg(op1, Reg::t(1));
+    // 此处向下转型PointerType，因为需要调用子类特有的get_element_type()
+    if (static_cast<PointerType*>(base->get_type())->get_element_type()->is_array_type()) {
+        auto* op2 = gepInst->get_operand(2);
+        load_to_greg(op2, Reg::t(2));
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_element_type()->get_array_element_type()->get_size(), Reg::t(4));
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_element_type()->get_size(), Reg::t(3));
+        append_inst(MUL WORD, { Reg::t(1).print(),Reg::t(1).print(),Reg::t(3).print() }); // 行计算
+        append_inst(MUL WORD, { Reg::t(2).print(),Reg::t(2).print(),Reg::t(4).print() }); // 列计算
+        append_inst("bstrpick.d $t1, $t1, 31, 0");
+        append_inst("bstrpick.d $t2, $t2, 31, 0");
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(1).print() });
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(2).print() });
+    }
+    else {
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_pointer_element_type()->get_size(), Reg::t(3));
+        append_inst(MUL WORD, { Reg::t(1).print(),Reg::t(1).print(),Reg::t(3).print() });
+        append_inst("bstrpick.d $t1, $t1, 31, 0");
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(1).print() });
+    }
+    store_from_greg(context.inst, Reg::t(0));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+通过`is_array_type()`区分是不是二维
+
+`MUL WORD`进行的是32乘法，所以`bstrpick.d`取低32位，对不确定的高32位进行符号位扩展
+
+然后累加偏移量到`$t0`
+
+
 
 
 
@@ -2237,9 +2367,8 @@ void CodeGen::gen_sitofp() {
     store_from_freg(context.inst, FReg::ft(1));
     // throw not_implemented_error{__FUNCTION__};
 }
+#define GR2FR "movgr2fr"
 ```
-
-`#define GR2FR "movgr2fr"`
 
 先将整形寄存器`$t0`中的值按位复制进浮点寄存器
 
@@ -2274,16 +2403,3 @@ void CodeGen::gen_fptosi() {
 ```
 
 `ftintrz.w.s $fd, $fj`选择浮点寄存器 `$fj` 中的单精度浮点数转换为整数型定点数，得到的整数型定点数写入到**浮点寄存器** `$fd` 中
-
-
-
-
-
-
-
-
-
-
-
-
-

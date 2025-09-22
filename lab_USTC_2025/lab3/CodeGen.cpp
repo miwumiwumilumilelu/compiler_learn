@@ -430,12 +430,55 @@ void CodeGen::gen_zext() {
 
 void CodeGen::gen_call() {
     // TODO 函数调用，注意我们只需要通过寄存器传递参数，即不需考虑栈上传参的情况
-    throw not_implemented_error{__FUNCTION__};
+    auto *call_inst = static_cast<CallInst*>(context.inst);
+    int garg_cnt = 0;
+    int farg_cnt = 0;
+    for(auto& arg: call_inst -> get_operands()){
+        if(arg -> get_type() -> is_float_type()){
+            load_to_freg(arg, FReg::fa(farg_cnt++));
+        }
+        else if (arg -> get_type() -> is_interger_type() || arg -> get_type() -> is_pointer_type()){
+            load_to_greg(arg, Reg::a(garg_cnt++));
+        }
+    }
+    append_list("bl " + static_cast<Function*>(call_inst -> get_operand(0)) -> get_name());
+    if(call_inst -> get_function_type() -> get_return_type() -> is_float_type()){
+        store_from_freg(context.inst, FReg::fa(0));
+    }
+    else if(call_inst -> get_function_type() -> get_return_type() -> is_integer_type() || call_inst -> get_function_type() -> get_return_type() -> is_pointer_type()){
+        store_from_greg(context.inst, Reg::a(0));
+    }
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_gep() {
     // TODO 计算内存地址
-    throw not_implemented_error{__FUNCTION__};
+    auto* gepInst = static_cast<GetElementPtrInst*>(context.inst);
+    auto* base = gepInst->get_operand(0);
+    auto* op1 = gepInst->get_operand(1);
+    load_to_greg(base, Reg::t(0));
+    load_to_greg(op1, Reg::t(1));
+    // 此处向下转型PointerType，因为需要调用子类特有的get_element_type()
+    if (static_cast<PointerType*>(base->get_type())->get_element_type()->is_array_type()) {
+        auto* op2 = gepInst->get_operand(2);
+        load_to_greg(op2, Reg::t(2));
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_element_type()->get_array_element_type()->get_size(), Reg::t(4));
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_element_type()->get_size(), Reg::t(3));
+        append_inst(MUL WORD, { Reg::t(1).print(),Reg::t(1).print(),Reg::t(3).print() }); // 行计算
+        append_inst(MUL WORD, { Reg::t(2).print(),Reg::t(2).print(),Reg::t(4).print() }); // 列计算
+        append_inst("bstrpick.d $t1, $t1, 31, 0");
+        append_inst("bstrpick.d $t2, $t2, 31, 0");
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(1).print() });
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(2).print() });
+    }
+    else {
+        load_large_int32(static_cast<PointerType*>(base->get_type())->get_pointer_element_type()->get_size(), Reg::t(3));
+        append_inst(MUL WORD, { Reg::t(1).print(),Reg::t(1).print(),Reg::t(3).print() });
+        append_inst("bstrpick.d $t1, $t1, 31, 0");
+        append_inst(ADD DOUBLE, { Reg::t(0).print(),Reg::t(0).print(),Reg::t(1).print() });
+    }
+    store_from_greg(context.inst, Reg::t(0));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_sitofp() {
