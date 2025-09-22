@@ -2014,3 +2014,320 @@ void CodeGen::gen_alloca() {
 `addi.d $t1, $fp, -36` 
 
 最后调用`store_from_greg` 将预留空间的起始偏移量计算得到的内存实际地址`$fp - 36`存储到内存的alloca_inst起始位置`$fp - 32`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_load() `**
+
+```c++
+void CodeGen::gen_load() {
+    auto *ptr = context.inst->get_operand(0);
+    auto *type = context.inst->get_type();
+    load_to_greg(ptr, Reg::t(0));
+
+    if (type->is_float_type()) {
+        append_inst("fld.s $ft0, $t0, 0");
+        store_from_freg(context.inst, FReg::ft(0));
+    } else {
+        // TODO load 整数类型的数据
+        if(type -> is_int1_type()){
+            append_inst("ld.b $t0, $t0, 0");
+        }
+        else if(type -> is_int32_type()){
+            append_inst("ld.w $t0, $t0, 0");
+        }
+        else{
+            append_inst("ld.d $t0, $t0, 0");
+        }
+        // throw not_implemented_error{__FUNCTION__};
+    }
+}
+```
+
+`load ptr 寄存器`
+
+todo部分只需要给出单字节，字和双字的处理判断即可
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **` CodeGen::gen_store()`**
+
+```c++
+void CodeGen::gen_store() {
+    // TODO 翻译 store 指令
+    auto *val = context.inst -> get_operand(0);
+    auto *ptr = context.inst -> get_operand(1);
+    auto *type = val -> get_type();
+    load_to_greg(ptr, Reg::t(0));
+    if(type -> is_float_type){
+        load_to_freg(val, FReg::ft(0));
+        append_list("fst.s $ft0, $t0, 0");
+    }
+    else {
+        load_to_greg(val, Reg::t(1));
+        if(type -> is_int1_type()){
+            append_list("st.b $t1, $t0, 0");
+        }
+        else if(type -> is_int32_type()){
+            append_list("st.w $t1, $t0, 0");
+        }
+        else {
+            append_list("st.d $t1, $t0, 0");
+    }
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+仿照`gen_load`
+
+先获取第一个操作数——要存的值，和第二个操作数——存储的内存地址（指针）
+
+将地址存入寄存器`$t0`，最后根据数值类型，判断哪种寄存器接受要存的值
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_icmp()`**
+
+```c++
+void CodeGen::gen_icmp() {
+    // TODO 处理各种整数比较的情况
+    load_to_greg(context.inst->get_operand(0), Reg::t(0));
+    load_to_greg(context.inst->get_operand(1), Reg::t(1));
+    switch (context.inst->get_instr_type()){
+        case Instruction::eq:
+            append_inst("seq.w $t2, $t0, $t1");
+            break;
+        case Instruction::ne:
+            append_inst("sne.w $t2, $t0, $t1");
+            break;
+        case Instruction::lt:
+            append_inst("slt.w $t2, $t0, $t1");
+            break;
+        case Instruction::le:
+            append_inst("sle.w $t2, $t0, $t1");
+            break;
+        case Instruction::gt:
+            append_inst("sgt.w $t2, $t0, $t1");
+            break;
+        case Instruction::ge:
+            append_inst("sge.w $t2, $t0, $t1");
+            break;
+        default:
+            assert(false);
+    }
+    store_from_greg(context.inst, Reg::t(2));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_fcmp()`**
+
+```c++
+void CodeGen::gen_fcmp() {
+    // TODO 处理各种浮点数比较的情况
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    load_to_freg(context.inst->get_operand(1), FReg::ft(1));
+    switch (context.inst->get_instr_type()){
+        case Instruction::feq:
+            append_inst("feq.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fne:
+            append_inst("fne.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::flt:
+            append_inst("flt.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fle:
+            append_inst("fle.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fgt:
+            append_inst("fgt.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fge:
+            append_inst("fge.s $t2, $ft0, $ft1");
+            break;
+        default:
+            assert(false);
+    }
+    store_from_greg(context.inst, Reg::t(2));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_zext()`**
+  * 在IR中`%result = zext i1 %cond to i32`令的含义是“**将 1 位的整数 `%cond` 零扩展成 32 位的整数 `%result`**”
+  * **zext 处理的是1i类型即布尔值**
+
+```c++
+void CodeGen::gen_zext() {
+    // TODO 将窄位宽的整数数据进行零扩展
+    load_to_greg(context.inst -> get_operand(0), Reg::t(0));
+    append_inst("bstrpick.w $t1, $t0, 0, 0");
+    store_from_greg(context.inst, Reg::t(1));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+取`$t0`第0位，**长度为1（起点0，终点0）**，放在`$t1`第0位，**剩下1-63位进行零扩展**
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_call()`**
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_gep()`**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_sitofp()`**
+
+```c++
+void CodeGen::gen_sitofp() {
+    // TODO 整数转向浮点数
+    load_to_greg(contex.inst->get_operand(0), Reg::t(0));
+    append_inst(GR2FR WORD, { FReg::ft(0).print(), Reg::t(0).print() });
+    append_inst("ffint.s.w $ft1, $ft0");
+    store_from_freg(context.inst, FReg::ft(1));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+`#define GR2FR "movgr2fr"`
+
+先将整形寄存器`$t0`中的值按位复制进浮点寄存器
+
+再通过`ffint`实现从整数到单精度浮点数的转换
+
+`ffint.s.w $fd, $fj`选择**浮点寄存器** `$fj` 中的整数型定点数转换为单精度浮点数，得到的单精度浮点数写入到浮点寄存器 `$fd` 中
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* **`CodeGen::gen_fptosi()`**
+
+```c++
+void CodeGen::gen_fptosi() {
+    // TODO 浮点数转向整数，注意向下取整(round to zero)
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    append_inst("ftintrz.w.s $ft1, $ft0");
+    store_from_freg(context.inst, FReg::ft(1));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+`ftintrz.w.s $fd, $fj`选择浮点寄存器 `$fj` 中的单精度浮点数转换为整数型定点数，得到的整数型定点数写入到**浮点寄存器** `$fd` 中
+
+
+
+
+
+
+
+
+
+
+
+
+

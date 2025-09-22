@@ -323,28 +323,109 @@ void CodeGen::gen_load() {
         store_from_freg(context.inst, FReg::ft(0));
     } else {
         // TODO load 整数类型的数据
-        throw not_implemented_error{__FUNCTION__};
+        if(type -> is_int1_type()){
+            append_inst("ld.b $t0, $t0, 0");
+        }
+        else if(type -> is_int32_type()){
+            append_inst("ld.w $t0, $t0, 0");
+        }
+        else{
+            append_inst("ld.d $t0, $t0, 0");
+        }
+        // throw not_implemented_error{__FUNCTION__};
     }
 }
 
 void CodeGen::gen_store() {
     // TODO 翻译 store 指令
-    throw not_implemented_error{__FUNCTION__};
+    auto *val = context.inst -> get_operand(0);
+    auto *ptr = context.inst -> get_operand(1);
+    auto *type = val -> get_type();
+    load_to_greg(ptr, Reg::t(0));
+    if(type -> is_float_type){
+        load_to_freg(val, FReg::ft(0));
+        append_list("fst.s $ft0, $t0, 0");
+    }
+    else {
+        load_to_greg(val, Reg::t(1));
+        if(type -> is_int1_type()){
+            append_list("st.b $t1, $t0, 0");
+        }
+        else if(type -> is_int32_type()){
+            append_list("st.w $t1, $t0, 0");
+        }
+        else {
+            append_list("st.d $t1, $t0, 0");
+    }
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_icmp() {
     // TODO 处理各种整数比较的情况
-    throw not_implemented_error{__FUNCTION__};
+    load_to_greg(context.inst->get_operand(0), Reg::t(0));
+    load_to_greg(context.inst->get_operand(1), Reg::t(1));
+    switch (context.inst->get_instr_type()){
+        case Instruction::eq:
+            append_inst("seq.w $t2, $t0, $t1");
+            break;
+        case Instruction::ne:
+            append_inst("sne.w $t2, $t0, $t1");
+            break;
+        case Instruction::lt:
+            append_inst("slt.w $t2, $t0, $t1");
+            break;
+        case Instruction::le:
+            append_inst("sle.w $t2, $t0, $t1");
+            break;
+        case Instruction::gt:
+            append_inst("sgt.w $t2, $t0, $t1");
+            break;
+        case Instruction::ge:
+            append_inst("sge.w $t2, $t0, $t1");
+            break;
+        default:
+            assert(false);
+    }
+    store_from_greg(context.inst, Reg::t(2));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_fcmp() {
     // TODO 处理各种浮点数比较的情况
-    throw not_implemented_error{__FUNCTION__};
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    load_to_freg(context.inst->get_operand(1), FReg::ft(1));
+    switch (context.inst->get_instr_type()){
+        case Instruction::feq:
+            append_inst("feq.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fne:
+            append_inst("fne.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::flt:
+            append_inst("flt.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fle:
+            append_inst("fle.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fgt:
+            append_inst("fgt.s $t2, $ft0, $ft1");
+            break;
+        case Instruction::fge:
+            append_inst("fge.s $t2, $ft0, $ft1");
+            break;
+        default:
+            assert(false);
+    }
+    store_from_greg(context.inst, Reg::t(2));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_zext() {
     // TODO 将窄位宽的整数数据进行零扩展
-    throw not_implemented_error{__FUNCTION__};
+    load_to_greg(context.inst -> get_operand(0), Reg::t(0));
+    append_inst("bstrpick.w $t1, $t0, 0, 0");
+    store_from_greg(context.inst, Reg::t(1));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_call() {
@@ -359,12 +440,19 @@ void CodeGen::gen_gep() {
 
 void CodeGen::gen_sitofp() {
     // TODO 整数转向浮点数
-    throw not_implemented_error{__FUNCTION__};
+    load_to_greg(contex.inst->get_operand(0), Reg::t(0));
+    append_inst(GR2FR WORD, { FReg::ft(0).print(), Reg::t(0).print() });
+    append_inst("ffint.s.w $ft1, $ft0");
+    store_from_freg(context.inst, FReg::ft(1));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::gen_fptosi() {
     // TODO 浮点数转向整数，注意向下取整(round to zero)
-    throw not_implemented_error{__FUNCTION__};
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    append_inst("ftintrz.w.s $ft1, $ft0");
+    store_from_freg(context.inst, FReg::ft(1));
+    // throw not_implemented_error{__FUNCTION__};
 }
 
 void CodeGen::run() {
