@@ -20,10 +20,10 @@
 > │       ├── CodeGen.cpp     <-- lab3 第二阶段需要修改的文件
 > │       └── Register.cpp
 > └── tests
->     ├── ...
->     └── 3-codegen
->         ├── warmup          <-- lab3 第一阶段（代码撰写）
->         └── autogen         <-- lab3 第二阶段的测试
+>  ├── ...
+>  └── 3-codegen
+>      ├── warmup          <-- lab3 第一阶段（代码撰写）
+>      └── autogen         <-- lab3 第二阶段的测试
 
 
 
@@ -1226,11 +1226,11 @@ void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
 
 之所以12位有优化策略，而不采用32位策略解决，是因为：
 
-   1.  指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
+      1.  指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
 
-   2.  如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这        会增加指令的存储空间、传输带宽和功耗   
+      2.  如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这        会增加指令的存储空间、传输带宽和功耗   
 
-   3.  定长指令有助于流水线处理，但会限制立即数的大小
+      3.  定长指令有助于流水线处理，但会限制立即数的大小
 
 
 
@@ -1542,12 +1542,12 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 > │   ├── common
 > │   └── codegen/*
 > └── tests
->  ├── ...
->  └── 3-codegen
->      └── warmup
->          ├── CMakeLists.txt
->          ├── ll_cases          <- 需要翻译的 ll 代码
->          └── stu_cpp           <- 学生需要编写的汇编代码手动生成器
+> ├── ...
+> └── 3-codegen
+>   └── warmup
+>       ├── CMakeLists.txt
+>       ├── ll_cases          <- 需要翻译的 ll 代码
+>       └── stu_cpp           <- 学生需要编写的汇编代码手动生成器
 
 **实验内容**
 
@@ -1576,11 +1576,11 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 > │   └── codegen
 > │       └── CodeGen.cpp         <-- 学生需要补全的文件
 > └── tests
->     ├── 3-codegen
->     │   └── autogen
->     │       ├── eval_lab3.sh    <-- 测评脚本
->     │       └── testcases       <-- lab3 第二阶段的测例目录一
->     └── testcases_general       <-- lab3 第二阶段的测例目录二
+>  ├── 3-codegen
+>  │   └── autogen
+>  │       ├── eval_lab3.sh    <-- 测评脚本
+>  │       └── testcases       <-- lab3 第二阶段的测例目录一
+>  └── testcases_general       <-- lab3 第二阶段的测例目录二
 
 **实验内容**
 
@@ -2339,6 +2339,28 @@ void CodeGen::gen_gep() {
 `MUL WORD`进行的是32乘法，所以`bstrpick.d`取低32位，对不确定的高32位进行符号位扩展
 
 然后累加偏移量到`$t0`
+
+**为什么is_array_type()可以用来区分数组维度?**
+
+因为`base->get_type())->get_element_type()->is_array_type()`的设计
+
+一维：
+
+`base->get_type()`: 获取 `base` 的类型，即 `i32*`。这是一个 `PointerType`
+
+`->get_element_type()`: 获取这个指针**指向的元素的类型**。`i32*` 指向的是 `i32`
+
+`->is_array_type()`: 对 `i32` 这个类型进行判断。`i32` 是一个整数类型，**它不是数组类型**
+
+二维：
+
+`base->get_type()`: 获取 `base` 的类型，即 `[10 x i32]*`。这是一个 `PointerType`
+
+`->get_element_type()`: 获取这个指针**指向的元素的类型**。`[10 x i32]*` 指向的是 `[10 x i32]`
+
+`->is_array_type()`: 对 `[10 x i32]` 这个类型进行判断。这**是一个数组类型**
+
+
 
 
 
