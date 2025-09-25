@@ -214,7 +214,7 @@ void CodeGen::gen_ret() {
     // 准备好返回值，然后调用写好的 gen_epilogue 来处理所有退出的清理工作
     auto* ret_inst = static_cast<ReturnInst*>(context.inst);
     if(ret_inst->is_void_ret()){
-        append_inst("addi.d $a0, $zero, $zero");    
+        append_inst("add.d $a0, $zero, $zero");    
     }
     else{
         auto* ret_val = ret_inst->get_operand(0);
@@ -234,8 +234,8 @@ void CodeGen::gen_br() {
     if (branchInst->is_cond_br()) {
         // TODO 补全条件跳转的情况
         auto *cond = branchInst->get_operand(0);
-        auto *truebb = static_cast<BasicBlock *>(branchInst->get_operand(1));
-        auto *falsebb = static_cast<BasicBlock *>(branchInst->get_operand(2));
+        auto *true_bb = static_cast<BasicBlock *>(branchInst->get_operand(1));
+        auto *false_bb = static_cast<BasicBlock *>(branchInst->get_operand(2));
         load_to_greg(cond, Reg::t(0));
         append_inst("bnez " + Reg::t(0).print() + ", " + label_name(true_bb));
         append_inst("b " + label_name(false_bb));
@@ -342,22 +342,23 @@ void CodeGen::gen_store() {
     auto *ptr = context.inst -> get_operand(1);
     auto *type = val -> get_type();
     load_to_greg(ptr, Reg::t(0));
-    if(type -> is_float_type){
+    if(type -> is_float_type()){
         load_to_freg(val, FReg::ft(0));
-        append_list("fst.s $ft0, $t0, 0");
+        append_inst("fst.s $ft0, $t0, 0");
     }
     else {
         load_to_greg(val, Reg::t(1));
         if(type -> is_int1_type()){
-            append_list("st.b $t1, $t0, 0");
+            append_inst("st.b $t1, $t0, 0");
         }
         else if(type -> is_int32_type()){
-            append_list("st.w $t1, $t0, 0");
+            append_inst("st.w $t1, $t0, 0");
         }
         else {
-            append_list("st.d $t1, $t0, 0");
+            append_inst("st.d $t1, $t0, 0");
     }
     // throw not_implemented_error{__FUNCTION__};
+    }
 }
 
 void CodeGen::gen_icmp() {
@@ -437,11 +438,11 @@ void CodeGen::gen_call() {
         if(arg -> get_type() -> is_float_type()){
             load_to_freg(arg, FReg::fa(farg_cnt++));
         }
-        else if (arg -> get_type() -> is_interger_type() || arg -> get_type() -> is_pointer_type()){
+        else if (arg -> get_type() -> is_integer_type() || arg -> get_type() -> is_pointer_type()){
             load_to_greg(arg, Reg::a(garg_cnt++));
         }
     }
-    append_list("bl " + static_cast<Function*>(call_inst -> get_operand(0)) -> get_name());
+    append_inst("bl " + static_cast<Function*>(call_inst -> get_operand(0)) -> get_name());
     if(call_inst -> get_function_type() -> get_return_type() -> is_float_type()){
         store_from_freg(context.inst, FReg::fa(0));
     }
@@ -483,7 +484,7 @@ void CodeGen::gen_gep() {
 
 void CodeGen::gen_sitofp() {
     // TODO 整数转向浮点数
-    load_to_greg(contex.inst->get_operand(0), Reg::t(0));
+    load_to_greg(context.inst->get_operand(0), Reg::t(0));
     append_inst(GR2FR WORD, { FReg::ft(0).print(), Reg::t(0).print() });
     append_inst("ffint.s.w $ft1, $ft0");
     store_from_freg(context.inst, FReg::ft(1));
@@ -625,7 +626,7 @@ void CodeGen::run() {
                 }
             }
             // 生成 epilogue
-            gen_epilogue();
+           gen_epilogue();
         }
     }
 }

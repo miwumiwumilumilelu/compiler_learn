@@ -1227,9 +1227,9 @@ void CodeGen::load_large_int32(int32_t val, const Reg& reg) {
 之所以12位有优化策略，而不采用32位策略解决，是因为：
 
       1.  指令占位和位中立即数的位宽以及指令对应的立即数是有无符号都由指令集严格规范
-
+    
       2.  如果每条指令都能包含一个完整的 32 位或 64 位立即数，那么指令本身就会变得非常长（例如 64 位指令+32位立即数），这        会增加指令的存储空间、传输带宽和功耗   
-
+    
       3.  定长指令有助于流水线处理，但会限制立即数的大小
 
 
@@ -1563,7 +1563,7 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 
 
 
-## 2.阶段2：编译器后端实验具体实现
+## 2.阶段2：编译器后端实验
 
 一个典型的编译器后端从中间代码获取信息，进行**活跃变量分析、寄存器分配、指令选择、指令优化**等一系列流程，最终生成高质量的后端代码。
 
@@ -1590,7 +1590,7 @@ void CodeGen::store_from_freg(Value* val, const FReg& r) {
 
 
 
-
+### 2.1 具体实现
 
 * **`CodeGen::gen_epilogue()`**
 
@@ -2425,3 +2425,272 @@ void CodeGen::gen_fptosi() {
 ```
 
 `ftintrz.w.s $fd, $fj`选择浮点寄存器 `$fj` 中的单精度浮点数转换为整数型定点数，得到的整数型定点数写入到**浮点寄存器** `$fd` 中
+
+
+
+
+
+
+
+### 2.2 编译error
+
+```shell
+cmake build
+cd build
+cmake ..
+make
+```
+
+```shell
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp: In member function ‘void CodeGen::gen_br()’:
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:240:69: error: ‘true_bb’ was not declared in this scope; did you mean ‘truebb’?
+  240 |         append_inst("bnez " + Reg::t(0).print() + ", " + label_name(true_bb));
+      |                                                                     ^~~~~~~
+      |                                                                     truebb
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:241:39: error: ‘false_bb’ was not declared in this scope; did you mean ‘falsebb’?
+  241 |         append_inst("b " + label_name(false_bb));
+      |                                       ^~~~~~~~
+      |                                       falsebb
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:237:15: warning: unused variable ‘truebb’ [-Wunused-variable]
+  237 |         auto *truebb = static_cast<BasicBlock *>(branchInst->get_operand(1));
+      |               ^~~~~~
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:238:15: warning: unused variable ‘falsebb’ [-Wunused-variable]
+  238 |         auto *falsebb = static_cast<BasicBlock *>(branchInst->get_operand(2));
+      |               ^~~~~~~
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp: In member function ‘void CodeGen::gen_store()’:
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:345:29: error: cannot convert ‘Type::is_float_type’ from type ‘bool (Type::)() const’ to type ‘bool’
+  345 |     if(type -> is_float_type){
+      |                             ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:347:9: error: ‘append_list’ was not declared in this scope; did you mean ‘append_inst’?
+  347 |         append_list("fst.s $ft0, $t0, 0");
+      |         ^~~~~~~~~~~
+      |         append_inst
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:352:13: error: ‘append_list’ was not declared in this scope; did you mean ‘append_inst’?
+  352 |             append_list("st.b $t1, $t0, 0");
+      |             ^~~~~~~~~~~
+      |             append_inst
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:355:13: error: ‘append_list’ was not declared in this scope; did you mean ‘append_inst’?
+  355 |             append_list("st.w $t1, $t0, 0");
+      |             ^~~~~~~~~~~
+      |             append_inst
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:358:13: error: ‘append_list’ was not declared in this scope; did you mean ‘append_inst’?
+  358 |             append_list("st.d $t1, $t0, 0");
+      |             ^~~~~~~~~~~
+      |             append_inst
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:363:23: error: qualified-id in declaration before ‘(’ token
+  363 | void CodeGen::gen_icmp() {
+      |                       ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:393:23: error: qualified-id in declaration before ‘(’ token
+  393 | void CodeGen::gen_fcmp() {
+      |                       ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:423:23: error: qualified-id in declaration before ‘(’ token
+  423 | void CodeGen::gen_zext() {
+      |                       ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:431:23: error: qualified-id in declaration before ‘(’ token
+  431 | void CodeGen::gen_call() {
+      |                       ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:436:22: error: qualified-id in declaration before ‘(’ token
+  436 | void CodeGen::gen_gep() {
+      |                      ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:441:25: error: qualified-id in declaration before ‘(’ token
+  441 | void CodeGen::gen_sitofp() {
+      |                         ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:450:25: error: qualified-id in declaration before ‘(’ token
+  450 | void CodeGen::gen_fptosi() {
+      |                         ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:458:18: error: qualified-id in declaration before ‘(’ token
+  458 | void CodeGen::run() {
+      |                  ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:590:27: error: qualified-id in declaration before ‘(’ token
+  590 | std::string CodeGen::print() const {
+      |                           ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:596:2: error: expected ‘}’ at end of input
+  596 | }
+      |  ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:339:27: note: to match this ‘{’
+  339 | void CodeGen::gen_store() {
+      |                           ^
+make[2]: *** [src/codegen/CMakeFiles/codegen.dir/build.make:76: src/codegen/CMakeFiles/codegen.dir/CodeGen.cpp.o] Error 1
+make[1]: *** [CMakeFiles/Makefile2:609: src/codegen/CMakeFiles/codegen.dir/all] Error 2
+make: *** [Makefile:136: all] Error 2
+```
+
+
+
+* **修改基本块名，加下划线**
+
+```cpp
+237        auto *true_bb = static_cast<BasicBlock *>(branchInst->get_operand(1));
+238        auto *false_bb = static_cast<BasicBlock *>(branchInst->get_operand(2));
+```
+
+* **修改`append_inst`的拼写错误**
+
+* **在`gen_store`函数末尾添加花括号闭合**
+
+
+
+
+
+```c++
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp: In member function ‘void CodeGen::gen_store()’:
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:345:29: error: cannot convert ‘Type::is_float_type’ from type ‘bool (Type::)() const’ to type ‘bool’
+  345 |     if(type -> is_float_type){
+      |                             ^
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp: In member function ‘void CodeGen::gen_call()’:
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:441:39: error: ‘class Type’ has no member named ‘is_interger_type’; did you mean ‘is_integer_type’?
+  441 |         else if (arg -> get_type() -> is_interger_type() || arg -> get_type() -> is_pointer_type()){
+      |                                       ^~~~~~~~~~~~~~~~
+      |                                       is_integer_type
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:445:5: error: ‘append_list’ was not declared in this scope; did you mean ‘append_inst’?
+  445 |     append_list("bl " + static_cast<Function*>(call_inst -> get_operand(0)) -> get_name());
+      |     ^~~~~~~~~~~
+      |     append_inst
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp: In member function ‘void CodeGen::gen_sitofp()’:
+/home/manbin/2023_warm_up_b/_lab3/lab3/src/codegen/CodeGen.cpp:487:18: error: ‘contex’ was not declared in this scope; did you mean ‘context’?
+  487 |     load_to_greg(contex.inst->get_operand(0), Reg::t(0));
+      |                  ^~~~~~
+      |                  context
+make[2]: *** [src/codegen/CMakeFiles/codegen.dir/build.make:76: src/codegen/CMakeFiles/codegen.dir/CodeGen.cpp.o] Error 1
+make[1]: *** [CMakeFiles/Makefile2:609: src/codegen/CMakeFiles/codegen.dir/all] Error 2
+make: *** [Makefile:136: all] Error 2
+```
+
+* **函数调用错误：**将 `if(type -> is_float_type)` 修改为 `if (type->is_float_type())`
+* **拼写错误：**
+  * 将 `is_interger_type()` 修改为 `is_integer_type()`
+  * 将 `append_list(...)` 修改为 `append_inst(...)`
+  * 将 `contex.inst` 修改为 `context.inst`
+
+
+
+
+
+```shell
+# 安装以链接 libcminus_io.a
+# 为了让 cminusfc 在 $PATH 中，一定要 sudo make install
+sudo make install
+```
+
+
+
+### 2.3 运行error
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ cminusfc 1-return.cminus -S
+# 编译 1-return.s，并链接 io.c 中的函数
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ loongarch64-unknown-linux-gnu-gcc -static 1-return.s ../../src/io/io.c -o 1-return 
+1-return.s: Assembler messages:
+1-return.s:11: Error: illegal operand: $zero
+```
+
+**`Error: illegal operand: $zero`**
+
+这个错误来自于**汇编器 **，而不是 C++ 编译器。`loongarch64-unknown-linux-gnu-gcc` 这个工具链不认识名为 `$zero` 的寄存器
+
+使用其 ABI 名称 **`zero`**（不带 `$`）
+
+**重新编译运行**
+
+**`Error: no match insn: addi.d $a0,zero,zero`**:
+
+- 指令 `addi.d $a0, zero, zero` 在语法上是错误的
+- `addi.d` 指令的格式是 `addi.d 目标寄存器, 源寄存器, 立即数`。它的第三个操作数**必须是一个数字**，不能是另一个寄存器（`zero`）
+- “两个寄存器相加”应该使用 `add.d` 指令，而不是 `addi.d`
+
+**重新编译运行后发现又报错误指令**
+
+**最终：修改指令为`add.d`并且改回`$zero`，这只是指令`add.d`的错误**
+
+
+
+```shell
+# 使用 qemu-loongarch64 运行二进制文件 1-return
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ qemu-loongarch64 1-return
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ cat 1-return.cminus 
+void main(void) { return; }
+```
+
+可见`1-return`程序是没有输出值的，现在**程序已经成功编译、链接并能在QEMU模拟器中运行了**，只是没有输出，但可以通过`echo$?`来查看返回值即`return`
+
+
+
+**完整对一个程序进行编译链接和运行**
+
+```c++
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ cat 9-assign_cast.cminus
+int main(void) {
+    int a;
+    int b;
+    a = 1 < 3;
+    b = 2 + 2.4;
+    return a + b;
+}
+```
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ cminusfc 9-assign_cast.cminus -S
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ loongarch64-unknown-linux-gnu-gcc -static 9-assign_cast.s ../../src/io/io.c -o 9-assign_cast 
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ qemu-loongarch64 9-assign_cast
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ echo $?
+0
+```
+
+**为什么输出不是5，是0？？？**
+
+
+
+### 2.4 批量测评脚本
+
+```shell
+manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/3-codegen$ ./eval_lab3.sh ./testcases test
+realpath: /home/manbin/2023_warm_up_b/_lab3/src/io: No such file or directory
+[info] Start testing, using testcase dir: ./testcases
+0-io...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+1-return...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+2-calculate...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+3-output...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+4-if...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+5-while...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+6-array...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+7-function...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+8-store...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+9-fibonacci...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+10-float...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+11-floatcall...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+12-global...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+13-complex...cc1: fatal error: /io.c: No such file or directory
+compilation terminated.
+CE: gcc compiler error
+```
+
+脚本期望在 `.../_lab3/src/` 目录下找到`io.c`，但它 **不存在**
+
+因此需要找到`io.c`然后放在`src`目录下
+
