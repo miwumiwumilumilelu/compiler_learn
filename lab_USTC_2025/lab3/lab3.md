@@ -2640,7 +2640,7 @@ manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/testcases_general$ echo $?
 
 
 
-### 2.4 批量测评脚本
+### 2.4 批量测评脚本&修bug
 
 ```shell
 manbin@compile:~/2023_warm_up_b/_lab3/lab3/tests/3-codegen$ ./eval_lab3.sh ./testcases test
@@ -2690,7 +2690,226 @@ compilation terminated.
 CE: gcc compiler error
 ```
 
-脚本期望在 `.../_lab3/src/` 目录下找到`io.c`，但它 **不存在**
+脚本期望在 `src/` 目录下找到`io.c`，但它 **不存在**
 
-因此需要找到`io.c`然后放在`src`目录下
+怀疑是**路径问题**
+
+根据自己的文件路径修改脚本io相对路径的内容：
+
+`manbin@compile:~/2023_warm_up_b/lab3/tests/3-codegen`
+
+```sh
+project_dir=$(realpath ../../)
+io_dir=$(realpath "$project_dir"/src/io)
+```
+
+
+
+
+
+```shell
+manbin@compile:~/2023_warm_up_b/lab3/tests/3-codegen$ ./eval_lab3.sh testcases/ test
+[info] Start testing, using testcase dir: testcases/
+0-io...WA: output differ, check testcases//0-io.out and output/0-io.out
+1-return...WA: output differ, check testcases//1-return.out and output/1-return.out
+2-calculate...WA: output differ, check testcases//2-calculate.out and output/2-calculate.out
+3-output...WA: output differ, check testcases//3-output.out and output/3-output.out
+4-if...WA: output differ, check testcases//4-if.out and output/4-if.out
+5-while...WA: output differ, check testcases//5-while.out and output/5-while.out
+6-array...WA: output differ, check testcases//6-array.out and output/6-array.out
+7-function...WA: output differ, check testcases//7-function.out and output/7-function.out
+8-store...WA: output differ, check testcases//8-store.out and output/8-store.out
+9-fibonacci...WA: output differ, check testcases//9-fibonacci.out and output/9-fibonacci.out
+10-float...WA: output differ, check testcases//10-float.out and output/10-float.out
+11-floatcall...WA: output differ, check testcases//11-floatcall.out and output/11-floatcall.out
+12-global...WA: output differ, check testcases//12-global.out and output/12-global.out
+13-complex...WA: output differ, check testcases//13-complex.out and output/13-complex.out
+```
+
+**打印的输出内容不对或者是 `main` 函数的返回值不符合预期！！！**
+
+根据`0-io.cminus`和`0-io.s`以及其输入输出可知：
+
+* **`gen_call()` 函数的实现错误**
+  * 在 `lightir` 框架中，`call` 指令的操作数遵循一个非常重要的约定：
+    - `get_operand(0)`, `get_operand(1)`, ... 是传递给函数的**参数**
+    - **最后一个操作数** (`get_operand(num - 1)`) 才是**被调用的函数本身**
+  * 我之前实现的`gen_call()`
+    * 错误地将**所有**操作数（包括函数自己）都当作参数来循环加载
+    * 错误地将**第一个参数** (`get_operand(0)`) 当作要跳转的函数来调用
+
+```cpp
+void CodeGen::gen_call() {
+    // TODO 函数调用，注意我们只需要通过寄存器传递参数，即不需考虑栈上传参的情况
+    auto* call_inst = static_cast<CallInst*>(context.inst);
+    int garg_cnt = 0;
+    int farg_cnt = 0;
+
+    auto* func_val = call_inst->get_operand(call_inst->get_num_operand() - 1);
+    for (size_t i = 0; i < call_inst->get_num_operand() - 1; ++i) {
+        auto* arg = call_inst->get_operand(i);
+        if (arg->get_type()->is_float_type()) {
+            load_to_freg(arg, FReg::fa(farg_cnt++));
+        } else { // 整数或指针
+            load_to_greg(arg, Reg::a(garg_cnt++));
+        }
+    }
+
+    append_inst("bl " + func_val->get_name());
+
+    if (!call_inst->is_void()) {
+        if (call_inst->get_type()->is_float_type()) {
+            store_from_freg(context.inst, FReg::fa(0));
+        } else {
+            store_from_greg(context.inst, Reg::a(0));
+        }
+    }
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+
+
+* **修复 `gen_load()` 中的数据丢失 Bug**
+  * 不进行`$t0`寄存器的覆盖，并且将最终结果存回栈上
+
+```c++
+void CodeGen::gen_load() {
+    auto *ptr = context.inst->get_operand(0);
+    auto *type = context.inst->get_type();
+    load_to_greg(ptr, Reg::t(0));
+
+    if (type->is_float_type()) {
+        append_inst("fld.s $ft0, $t0, 0");
+        store_from_freg(context.inst, FReg::ft(0));
+    } else {
+        // TODO load 整数类型的数据
+        if(type -> is_int1_type()){
+            append_inst(LOAD BYTE, {Reg::t(1).print(), Reg::t(0).print(), "0"});
+        }
+        else if(type -> is_int32_type()){
+            append_inst(LOAD WORD, {Reg::t(1).print(), Reg::t(0).print(), "0"});
+        }
+        else{
+            append_inst(LOAD DOUBLE, {Reg::t(1).print(), Reg::t(0).print(), "0"});
+        }
+        store_from_greg(context.inst, Reg::t(1));
+        // throw not_implemented_error{__FUNCTION__};
+    }
+}
+```
+
+
+
+* **修复浮点数转换 Bug - `gen_fptosi()`**
+  * 在将浮点数转为整数后，得到的结果（一个整数的位模式）留在了浮点寄存器 `$ft1` 中，然后错误地调用了 `store_from_freg`。这会把一个整数当作浮点数存起来，导致数值错误
+  * 因此还需要有更换寄存器的操作
+
+```cpp
+void CodeGen::gen_fptosi() {
+    // TODO 浮点数转向整数，注意向下取整(round to zero)
+    load_to_freg(context.inst->get_operand(0), FReg::ft(0));
+    append_inst("ftintrz.w.s $ft1, $ft0");
+    append_inst("movfr2gr.s $t0, $ft1");
+    store_from_greg(context.inst, Reg::t(0));
+    // throw not_implemented_error{__FUNCTION__};
+}
+```
+
+
+
+再执行还是WA了！看`0-io.s`汇编文件：
+
+```s
+	.text
+	.globl main
+	.type main, @function
+main:
+	st.d $ra, $sp, -8
+	st.d $fp, $sp, -16
+	addi.d $fp, $sp, 0
+	addi.d $sp, $sp, -16
+.main_label_entry:
+# ret i32 0
+	addi.w $a0, $zero, 0
+	addi.d $sp, $sp, 16
+	ld.d $fp, $sp, -16
+	ld.d $ra, $sp, -8
+	jr $ra
+```
+
+发现没有进行`input()`和`output()`的函数调用，**但是具体实现策略没有问题，因此采用debug模式获取中间文件.ll来深入分析:**
+
+```ll
+; ModuleID = 'cminus'
+source_filename = "/home/manbin/2023_warm_up_b/lab3/tests/3-codegen/testcases/0-io.cminus"
+
+declare i32 @input()
+
+declare void @output(i32)
+
+declare void @outputFloat(float)
+
+declare void @neg_idx_except()
+
+define i32 @main() {
+label_entry:
+  ret i32 0
+}
+```
+
+**！！！根源不在您的 `CodeGen.cpp`，而是在前端，也就是生成 LLVM IR 的那部分`cminusf_builder.cpp`！！！**
+
+**我忘记把lab2的`cminusf_builder.cpp`和`cminusf_builder.hpp`复制过来了！**
+
+```shell
+manbin@compile:~/2023_warm_up_b/lab3/tests/3-codegen$ ./eval_lab3.sh testcases debug
+[info] Start testing, using testcase dir: testcases
+0-io..../eval_lab3.sh: line 65: 15573 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+1-return..../eval_lab3.sh: line 65: 15577 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+2-calculate...OK
+3-output..../eval_lab3.sh: line 65: 15595 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+4-if..../eval_lab3.sh: line 65: 15599 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+5-while..../eval_lab3.sh: line 65: 15603 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+6-array..../eval_lab3.sh: line 65: 15607 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+7-function..../eval_lab3.sh: line 65: 15611 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+8-store..../eval_lab3.sh: line 65: 15615 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+9-fibonacci..../eval_lab3.sh: line 65: 15619 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+10-float..../eval_lab3.sh: line 65: 15634 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+11-floatcall..../eval_lab3.sh: line 65: 15638 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+12-global..../eval_lab3.sh: line 65: 15642 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+13-complex..../eval_lab3.sh: line 65: 15646 Aborted                 (core dumped) bash -c "cminusfc -S $case -o $asm_file" >> $LOG 2>&1
+CE: cminusfc compiler error
+```
+
+查看log.txt:	错误几乎都是这个
+
+```
+==========testcases/0-io.cminus==========
+cminusfc: /home/manbin/2023_warm_up_b/lab3/src/codegen/CodeGen.cpp:39: void CodeGen::load_to_greg(Value*, const Reg&): Assertion `val->get_type()->is_integer_type() || val->get_type()->is_pointer_type()' failed.
+```
+
+编译器在执行 `CodeGen.cpp` 文件的第39行时崩溃了
+
+**原因：`assert` 断言失败**
+
+**断言内容**: `val->get_type()->is_integer_type() || val->get_type()->is_pointer_type()`
+
+`load_to_greg` 的作用是把一个值加载到通用寄存器（比如`$t0`, `$a0`等）。通用寄存器只能存放整数或地址（指针）
+因此，如果您试图将一个**浮点数**或者其他非整数/非指针类型的值加载到通用寄存器，这个断言就会触发，以防止生成错误的汇编代码
+
+```
+```
 
