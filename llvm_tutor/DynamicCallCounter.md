@@ -199,12 +199,41 @@ Constant *CreateGlobalCounter(Module &M, StringRef GlobalVarName) {
 3. *Define a printf wrapper that will print the results*
 
    ```c++
+     std::string out = "";
+     out += "=================================================\n";
+     out += "LLVM-TUTOR: dynamic analysis results\n";
+     out += "=================================================\n";
+     out += "NAME                 #N DIRECT CALLS\n";
+     out += "-------------------------------------------------\n";
+   
+     llvm::Constant *ResultHeaderStr =
+         llvm::ConstantDataArray::getString(CTX, out.c_str());
+   
+     Constant *ResultHeaderStrVar =
+         M.getOrInsertGlobal("ResultHeaderStrIR", ResultHeaderStr->getType());
+     dyn_cast<GlobalVariable>(ResultHeaderStrVar)->setInitializer(ResultHeaderStr);
+   
+   ```
+
+   表头对应的输出
+
+   out.c_str()
+
+   setInitializer(ResultHeaderStr)
+
+   ```c++
    // 在模块中定义一个新的、名为 "printf_wrapper" 的函数
    Function *PrintfWrapperF = ... M.getOrInsertFunction("printf_wrapper", ...);
    
    // 为这个新函数创建一个入口基本块并用 IRBuilder 填充内容
    llvm::BasicBlock *RetBlock = BasicBlock::Create(CTX, "enter", PrintfWrapperF);
    IRBuilder<> Builder(RetBlock);
+   
+   // 将“字符串数组”转换成 printf 函数能够理解的“字符串指针”
+   llvm::Value *ResultHeaderStrPtr =
+       Builder.CreatePointerCast(ResultHeaderStrVar, PrintfArgTy);
+   llvm::Value *ResultFormatStrPtr =
+       Builder.CreatePointerCast(ResultFormatStrVar, PrintfArgTy);
    
    // 生成一系列 printf 调用
    Builder.CreateCall(Printf, {ResultHeaderStrPtr}); // 打印表头
