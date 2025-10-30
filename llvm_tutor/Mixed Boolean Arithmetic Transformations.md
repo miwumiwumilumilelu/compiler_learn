@@ -183,6 +183,109 @@ define ... i32 @main(...) ... {
 
 ## Mixed Boolean Arithmetic Transformations 源码
 
-### .h
+### MBASub.h
 
-### .c
+PassInfoMixIn 是一个 CRTP 混合模块，用于自动提供通行证所需的信息性 API， 目前它仅提供“name”方法
+
+```cpp
+struct MBASub : public llvm::PassInfoMixin<MBASub>{...}
+```
+
+### MBASub.c
+
+**核心函数：`runOnBasicBlock`**
+
+向下转型`BinaryOperator`指针，检查当前指令是否是二元操作
+
+`BinOp->getOpcode();`获得操作符，检查 二元操作指令操作符是不是减法 或者 二元操作指令类型是不是整型，以确保进行变换的是**二元整型减法操作**
+
+`IRBuilder<> Builder(BinOp);`定位当前选到的指令，构建IRBuilder
+
+```c++
+Instruction *NewValue = BinaryOperator::CreateAdd(
+        Builder.CreateAdd(BinOp->getOperand(0),       // a
+                          Builder.CreateNot(BinOp->getOperand(1))), // ~b
+        ConstantInt::get(BinOp->getType(), 1));        // 1
+
+// `BinOp->getOperand(0)`获取指令的第一个操作数a，1则是b
+
+// 此处也可以写`Instruction *NewValue = Builder.CreateAdd`
+
+// `ConstantInt::get(Type, Value)`制造IR构建所需的同类型同值的常量
+```
+
+`ReplaceInstWithInst(&BB, Inst, NewValue);`两个Instruction型的取代
+
+最后标记changed为true，即已修改已替换；并更新统计计数
+
+
+
+**运行主函数：`run`**
+
+```c++
+  for (auto &BB : F) {
+    Changed |= runOnBasicBlock(BB);
+  }
+  return (Changed ? llvm::PreservedAnalyses::none()
+                  : llvm::PreservedAnalyses::all());
+```
+
+只要找到了一个符合条件的指令并修改了则Changed保持为1
+
+并且如果修改了，返回的结果告知编译器“之前的分析结果都失效”
+
+
+
+### MBAAdd.h
+
+和Sub一样模板
+
+```c++
+struct MBAAdd : public llvm::PassInfoMixin<MBAAdd> 
+```
+
+### MBAAdd.c
+
+`BinOp->getType()->getIntegerBitWidth() == 8`检查是否是8位，获取二元操作指令的操作数位数，只对8位整型进行替换
+
+通过`ConstantInt::get`准备常量，为了构建IR
+
+```c++
+    // Constants used in building the instruction for substitution
+    auto Val39 = ConstantInt::get(BinOp->getType(), 39);
+    auto Val151 = ConstantInt::get(BinOp->getType(), 151);
+    auto Val23 = ConstantInt::get(BinOp->getType(), 23);
+    auto Val2 = ConstantInt::get(BinOp->getType(), 2);
+    auto Val111 = ConstantInt::get(BinOp->getType(), 111);
+```
+
+```c++
+    Instruction *NewInst =
+        // E = e5 + 111
+        BinaryOperator::CreateAdd(
+            Val111,
+            // e5 = e4 * 151
+            Builder.CreateMul(
+                Val151,
+                // e4 = e2 + 23
+                Builder.CreateAdd(
+                    Val23,
+                    // e3 = e2 * 39
+                    Builder.CreateMul(
+                        Val39,
+                        // e2 = e0 + e1
+                        Builder.CreateAdd(
+                            // e0 = a ^ b
+                            Builder.CreateXor(BinOp->getOperand(0),
+                                              BinOp->getOperand(1)),
+                            // e1 = 2 * (a & b)
+                            Builder.CreateMul(
+                                Val2, Builder.CreateAnd(BinOp->getOperand(0),
+                                                        BinOp->getOperand(1))))
+                    ) // e3 = e2 * 39
+                ) // e4 = e2 + 23
+            ) // e5 = e4 * 151
+        ); // E = e5 + 111
+```
+
+其他地方同理Sub
