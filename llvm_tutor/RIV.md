@@ -195,3 +195,9 @@ RIV::Result RIV::run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM) {
 }
 ```
 
+
+
+**流程：**
+
+1. 创建一个工作列表（在代码中是一个被当作栈使用的 `deque`），并将支配树的**根节点**（即入口块）放入其中
+2. 进入一个循环，只要工作列表不为空就继续： a. 从工作列表中取出一个节点，称之为 `Parent`。 b. 遍历 `Parent` 在支配树中的每一个直接子节点，称之为 `Child`。 c. 对于每一个 `Child`，执行以下“遗传”操作： i.  将 `Parent` \**自身\**的 RIV 集合（即 `Parent` 从它的祖先那里继承来的所有变量），\**全部拷贝\**到 `Child` 的 RIV 集合中。 ii. 将 `Parent` 在第 1 步中算出的“本地特产”，即自身定义的值（`DefinedValuesMap` 中记录的值），也全部加入到 `Child` 的 RIV 集合中。 d. 将 `Child` 也放入工作列表中，以便后续继续向下传播。
