@@ -192,21 +192,15 @@ int main(int argc, char *argv[]){
 }
 
 #include<stdarg.h>
-/* --- 关键修改：重写 yyerror 逻辑 --- */
 void yyerror(const char* fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-
-    // 检查 fmt 字符串是否是来自 semantics.c 的自定义错误
-    // "第" 在 UTF-8 中是 3 字节: 0xE7 0xAC 0xAC
     if (strncmp(fmt, "\xE7\xAC\xAC", 3) == 0) {
         // 如果是自定义错误 (如 "第...行..."), 则直接按原样打印到 stderr
         vfprintf(stderr, fmt, ap);
         fprintf(stderr, "\n"); // 确保换行
     } else {
-        // 否则, 认为是 Bison 传来的“语法错误”
-        // 打印完整的 "Grammar Error at..." 前缀
         fprintf(stderr, "Grammar Error at Line %d Column %d: ", yylloc.first_line, yylloc.first_column);
         vfprintf(stderr, fmt, ap);
         fprintf(stderr, " near '%s'\n", yytext);

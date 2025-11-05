@@ -35,8 +35,6 @@ void setSymbolValue(char *name, EvalResult result) {
     symbol->value = result.value;
 }
 
-/* --- 关键修改 1：重写 getSymbolValue --- */
-// 接收 ASTNode* 以便获取行号
 EvalResult getSymbolValue(ASTNode *idNode) {
     char *name = idNode->stringValue;
     Symbol *symbol = findSymbol(name);
@@ -44,7 +42,6 @@ EvalResult getSymbolValue(ASTNode *idNode) {
     
     if (symbol == NULL) {
         // 变量未定义，报告错误并退出
-        // 注意：yyerror 声明在 def.h 中，所以这里可以调用
         yyerror("第%d行的符号%s未定义值", idNode->lineno, name);
         exit(1); // 终止程序
     } else {
@@ -75,7 +72,6 @@ EvalResult evalExpression(ASTNode *node) {
             result.value.floatValue = node->floatValue;
             break;
         
-        /* --- 关键修改 2：修改 NODE_ID 的调用 --- */
         case NODE_ID:
             result = getSymbolValue(node); // 传递整个节点
             break;
@@ -88,7 +84,7 @@ EvalResult evalExpression(ASTNode *node) {
             break;
         }
 
-        // 算术运算 (无改动)
+        // 算术运算
         case NODE_PLUS:
         case NODE_MINUS:
         case NODE_STAR:
@@ -116,7 +112,7 @@ EvalResult evalExpression(ASTNode *node) {
             break;
         }
 
-        // 关系运算 (无改动)
+        // 关系运算
         case NODE_EQ: case NODE_NE: case NODE_GT:
         case NODE_GE: case NODE_LT: case NODE_LE: {
             EvalResult left = evalExpression(node->child);
@@ -135,7 +131,7 @@ EvalResult evalExpression(ASTNode *node) {
             break;
         }
         
-        // 单目负号 (无改动)
+        // 单目负号
         case NODE_UMINUS: {
             EvalResult val = evalExpression(node->child);
             if (val.type == TYPE_INT) {
@@ -174,37 +170,39 @@ void executeProgram(ASTNode *node) {
             evalExpression(node->child);
             break;
 
-        /* --- 关键修改 3：添加换行符 --- */
         case NODE_PRINT_STMT: {
             EvalResult result = evalExpression(node->child);
             if (result.type == TYPE_INT) {
-                printf("%d\n", result.value.intValue); // 添加 \n
+                printf("%d\n", result.value.intValue);
             } else {
-                printf("%f\n", result.value.floatValue); // 添加 \n
+                printf("%f\n", result.value.floatValue);
             }
             break;
         }
 
-        // 输入语句 (无改动)
+        /* --- 关键修改：重写 SCAN 逻辑 --- */
         case NODE_SCAN_STMT: {
             char *varName = node->child->stringValue;
             EvalResult res;
-            float f_val;
-            if (scanf("%f", &f_val) == 1) { 
-                int i_val = (int)f_val;
-                if (f_val == (float)i_val) {
-                    res.type = TYPE_INT;
-                    res.value.intValue = i_val;
-                } else {
+            char buffer[100];
+            
+            if (scanf("%s", buffer) == 1) { // 1. 先读取为字符串
+                // 2. 检查字符串是否包含 '.' 'e' 或 'E'
+                if (strchr(buffer, '.') != NULL || strchr(buffer, 'e') != NULL || strchr(buffer, 'E') != NULL) {
+                    // 3a. 如果是，则当作浮点数处理
                     res.type = TYPE_FLOAT;
-                    res.value.floatValue = f_val;
+                    res.value.floatValue = atof(buffer);
+                } else {
+                    // 3b. 否则，当作整数处理
+                    res.type = TYPE_INT;
+                    res.value.intValue = atoi(buffer);
                 }
                 setSymbolValue(varName, res);
             }
             break;
         }
 
-        // IF 语句 (无改动)
+        // IF 语句
         case NODE_IF_STMT: {
             EvalResult cond = evalExpression(node->child);
             int isTrue = (cond.type == TYPE_INT) ? cond.value.intValue != 0 : cond.value.floatValue != 0.0;
@@ -214,7 +212,7 @@ void executeProgram(ASTNode *node) {
             break;
         }
 
-        // IF-ELSE 语句 (无改动)
+        // IF-ELSE 语句
         case NODE_IF_ELSE_STMT: {
             EvalResult cond = evalExpression(node->child);
             int isTrue = (cond.type == TYPE_INT) ? cond.value.intValue != 0 : cond.value.floatValue != 0.0;
@@ -226,7 +224,7 @@ void executeProgram(ASTNode *node) {
             break;
         }
 
-        // WHILE 语句 (无改动)
+        // WHILE 语句
         case NODE_WHILE_STMT: {
             while (1) {
                 EvalResult cond = evalExpression(node->child);
