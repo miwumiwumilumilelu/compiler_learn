@@ -98,7 +98,7 @@ program: StmList { root = $1; }
     ;
 
 StmList: { $$ = createNode(NODE_STMT_LIST); }
-    | Stmt StmList { addChild($1, $2); $$ = $1; }
+    | StmList Stmt { addChild($1, $2); $$ = $1; }
     ;
 
 CompSt: LC StmList RC { $$ = $2; }

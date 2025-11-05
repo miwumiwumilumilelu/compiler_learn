@@ -89,7 +89,7 @@ void displayAST(struct ASTNode *node, int indent) {
         case NODE_GE:     printf(">=\n"); break;
         case NODE_LT:     printf("<\n"); break;
         case NODE_LE:     printf("<=\n"); break;
-        case NODE_UMINUS: printf("UMINUS (单目-)\n"); break;
+        case NODE_UMINUS: printf("单目-\n"); break;
         
         default:
             printf("未知节点类型: %d\n", node->nodeType);
