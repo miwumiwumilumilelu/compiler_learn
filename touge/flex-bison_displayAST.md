@@ -331,3 +331,146 @@ void yyerror(const char* fmt, ...)
 
 
 
+## displayAST.c
+
+用凹入表的方式输出语法树的遍历，缩进空格数为4，浮点数显示按默认小数点后6位
+
+```c
+// 打印缩进的辅助函数
+void print_indent(int indent) {
+    for (int i = 0; i < indent; i++) {
+        printf("    ");
+    }
+}
+```
+
+`if (node == NULL) return;`一次处理一个节点，结束递归
+
+```c
+    // 语句列表特殊处理：直接遍历打印其下的各个语句
+    if (node->nodeType == NODE_STMT_LIST) {
+        struct ASTNode *child = node->child;
+        while (child != NULL) {
+            displayAST(child, indent);
+            child = child->next;
+        }
+        return;
+    }
+```
+
+如果当前节点是 `NODE_STMT_LIST`，它会跳过打印自己
+
+它会立即遍历它的所有子节点（即 `Stmt` 语句节点），并以相同的缩进级别 (`indent`) 递归调用 `displayAST`
+
+记得return
+
+switch - case 打印逻辑
+
+1. 叶子结点：
+
+   ```c
+   				// 常量和变量
+           case NODE_INT:
+               printf("整型常量：%d\n", node->intValue);
+               return;
+           case NODE_FLOAT:
+               printf("浮点常量：%f\n", node->floatValue);
+               return;
+           case NODE_ID:
+               printf("变量：%s\n", node->stringValue);
+               return;
+           case NODE_SCAN_STMT:
+               printf("输入变量：%s\n", node->child->stringValue);
+               return; // 已处理子节点，直接返回
+   ```
+
+2. 复杂分支节点:
+
+   由预期输出得知：
+
+   ```
+   预期输出：
+   表达式语句：
+       =
+           变量：a
+           浮点常量：10.100000
+   输入变量：b
+   条件语句(if_then_else)：
+       条件：
+           >
+               变量：a
+               变量：b
+       if子句：
+           表达式语句：
+               =
+                   变量：max
+                   变量：a
+       else子句：
+           表达式语句：
+               =
+                   变量：max
+                   变量：b
+   输出表达式:
+       变量：max
+   
+   
+   ```
+
+   ```c
+   case NODE_IF_ELSE_STMT:
+               printf("条件语句(if_then_else)：\n");
+               print_indent(indent + 1);
+               printf("条件：\n");
+               displayAST(node->child, indent + 2); // 手动递归
+               // ... (打印 "if子句" 和 "else子句") ...
+               displayAST(node->child->next->next, indent + 2); // 手动递归
+               return; // 手动处理子节点，返回
+           case NODE_WHILE_STMT:
+               // ... (类似地，手动打印 "条件" 和 "循环体") ...
+               return;
+   ```
+
+3. 操作符
+
+   ```c
+           // 操作符
+           case NODE_ASSIGN: printf("=\n"); break;
+           case NODE_PLUS:   printf("+\n"); break;
+           case NODE_MINUS:  printf("-\n"); break;
+           case NODE_STAR:   printf("*\n"); break;
+           case NODE_DIV:    printf("/\n"); break;
+           case NODE_EQ:     printf("==\n"); break;
+           case NODE_NE:     printf("!=\n"); break;
+           case NODE_GT:     printf(">\n"); break;
+           case NODE_GE:     printf(">=\n"); break;
+           case NODE_LT:     printf("<\n"); break;
+           case NODE_LE:     printf("<=\n"); break;
+           case NODE_UMINUS: printf("单目-\n"); break;
+
+
+
+```c
+    // 递归遍历子结点
+    struct ASTNode *child = node->child;
+    while (child != NULL) {
+        displayAST(child, indent + 1);
+        child = child->next;
+    }
+```
+
+写给break相关的case语句，如操作数，仍需继续执行孩子节点
+
+举例：
+
+当 `displayAST` 处理 `NODE_PLUS` 时：
+
+1. 它打印缩进。
+2. `switch` 匹配到 `NODE_PLUS`，打印 `+\n`。
+3. 执行 `break;`，跳出 `switch`。
+4. 代码来到**这个 `while` 循环**。
+5. 循环启动，自动找到 `NODE_PLUS` 的第一个孩子（左边的 `Exp`），并用 `indent + 1` 递归调用 `displayAST`。
+6. 循环继续，找到第二个孩子（右边的 `Exp`），并用 `indent + 1` 递归调用 `displayAST`。
+7. 循环结束，函数返回。
+
+
+
