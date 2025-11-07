@@ -117,4 +117,81 @@ lt-tail-0:                                        ; preds = %lt-clone-2-0
 
 ### .h
 
+```c++
+bool canRemoveInst(const llvm::Instruction *Inst);
+```
+
+这是一个**安全检查**函数。`canMergeInstructions` 会调用它。如果一条指令有一次使用（`hasOneUse()`），合并它可能是危险的。此函数检查这次使用是否“安全”
+
+* 其用户是后继块中的 `PHINode`（这是 `DuplicateBB` 克隆体合并时的标准情况）
+
+* 其用户和它在同一个块中（如果块被删除，用户也会一起被删除，所以是安全的
+
+```c++
+bool canMergeInstructions(llvm::ArrayRef<llvm::Instruction *> Insts);
+```
+
+这是一个**检查**函数。它接受一对指令（`Insts`），并判断它们是否“相同”到可以合并。这不仅包括操作码相同，还包括操作数也必须完全相同
+
+```c++
+unsigned updateBranchTargets(llvm::BasicBlock *BBToErase,
+                             llvm::BasicBlock *BBToRetain);
+```
+
+这是一个**执行**函数。当 `mergeDuplicatedBlock` 确定 `BBToErase` (要删除的块) 和 `BBToRetain` (要保留的块) 可以合并时，此函数负责修改控制流图（CFG）。它会找到所有跳转到 `BBToErase` 的前驱块，并将它们的跳转目标重定向到 `BBToRetain`
+
+```c++
+bool
+mergeDuplicatedBlock(llvm::BasicBlock *BB,
+                     llvm::SmallPtrSet<llvm::BasicBlock *, 8> &DeleteList);
+```
+
+这是**核心逻辑**函数。它接受一个基本块 `BB`，然后尝试在函数中为 `BB` 寻找到一个“孪生兄弟”（内容完全相同的另一个块）。如果找到了，它就执行合并，并将 `BB` 添加到 `DeleteList` (待删除列表) 中
+
+```c++
+class LockstepReverseIterator {
+  llvm::BasicBlock *BB1;
+  llvm::BasicBlock *BB2;
+
+  llvm::SmallVector<llvm::Instruction *, 2> Insts;
+  bool Fail;
+
+public:
+  LockstepReverseIterator(llvm::BasicBlock *BB1In, llvm::BasicBlock *BB2In);
+
+  llvm::Instruction *getLastNonDbgInst(llvm::BasicBlock *BB);
+  bool isValid() const { return !Fail; }
+
+  void operator--();
+
+  llvm::ArrayRef<llvm::Instruction *> operator*() const { return Insts; }
+};
+```
+
+这是一个自定义的迭代器类，也是这个 Pass 得以实现的关键工具
+
+- **目的**：为了比较 `BB1` 和 `BB2` 是否相同，你需要逐条指令地比较它们。这个类允许你“同步地”（in lockstep）从 `BB1` 和 `BB2` 的末尾向前反向迭代**（逆序遍历，后向分析）**
+
+- **`LockstepReverseIterator(BB1, BB2)`** (构造函数): 设置迭代器，使其指向 `BB1` 和 `BB2` 的最后一个非调试指令（即终结符之前的最后一条“真实”指令）。
+
+- **`isValid()`**: 检查迭代是否完成。如果已经到达了任一基本块的开头，则返回 `false`。
+
+- **`operator--()`** (递减): **同时**将 `BB1` 和 `BB2` 的内部指针移动到它们的“上一条”非调试指令。
+
+- **`operator*()`** (解引用): 返回一个包含**当前这对指令**的数组（`[Inst_from_BB1, Inst_from_BB2]`）。`canMergeInstructions` 就会接收这个数组。
+
+  `llvm::ArrayRef<llvm::Instruction *> operator*() const { return Insts; }`
+
+  其中operator* ()是重载符
+
+  这使得你可以对 `LockstepReverseIterator` 类的对象（比如 `LRI`）使用 `*` 符号，就像它是一个 C++ 的标准指针或迭代器一样
+
+  当写下 `*LRI` 时，C++ 编译器会自动将其翻译为 `LRI.operator*()`
+
+  当 `operator*` 被调用时，它会返回一个指向 `Instruction*` 数组的轻量级视图——**`ArrayRef<llvm::Instruction *>`**
+
+  这个 `const` 关键字放在函数末尾，意味着这个函数是一个**“只读”**操作。
+
+
+
 ### .cpp
