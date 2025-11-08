@@ -195,3 +195,96 @@ public:
 
 
 ### .cpp
+
+**run**
+
+```c++
+PreservedAnalyses MergeBB::run(llvm::Function &Func,
+                               llvm::FunctionAnalysisManager &) {
+  bool Changed = false;
+  SmallPtrSet<BasicBlock *, 8> DeleteList;
+  for (auto &BB : Func) {
+    Changed |= mergeDuplicatedBlock(&BB, DeleteList);
+  }
+
+  for (BasicBlock *BB : DeleteList) {
+    DeleteDeadBlock(BB);
+  }
+
+  return (Changed ? llvm::PreservedAnalyses::none()
+                  : llvm::PreservedAnalyses::all());
+}
+```
+
+`SmallPtrSet<BasicBlock *, 8> DeleteList;`创建了一个8个BasicBlock *指针大小的 `DeleteList`。这是一个为指针优化的**哈希集合 (Set)**，用于跟踪所有“已合并”并等待删除的基本块
+
+遍历函数中的所有基本块，并将其（`&BB`）作为 `BB1` 传递给 `mergeDuplicatedBlock`。`mergeDuplicatedBlock` 是真正的核心函数，它会尝试为 `BB1` 寻找一个“孪生兄弟” `BB2` 并进行合并
+
+* 如果 `mergeDuplicatedBlock` 成功了（返回 `true`），`BB1` 就会被添加到 `DeleteList` 中，并且 `Changed` 标志位被设为 `true`
+
+设置标志位用来告诉管理器是否修改了IR
+
+
+
+**mergeDuplicatedBlock**
+
+入参资格预审：
+
+1. BB1不能是入口块
+
+   入口块 (`entry`) 是函数的起点，不能被合并掉
+
+2. 必须以“无条件分支”结束
+
+   大大简化了分析，因为它保证了 `BB1` **只有一个**确定的后继块（`BBSucc`）
+
+3. 它的所有前驱块必须是 'br' 或 'switch'
+
+   为了确保 `updateBranchTargets` 函数（稍后执行合并）可以轻松地重定向它们
+
+```c++
+bool MergeBB::mergeDuplicatedBlock(BasicBlock *BB1,
+                                   SmallPtrSet<BasicBlock *, 8> &DeleteList) {
+  // Do not optimize the entry block
+  if (BB1 == &BB1->getParent()->getEntryBlock())
+    return false;
+
+  // Only merge CFG edges of unconditional branch
+  BranchInst *BB1Term = dyn_cast<BranchInst>(BB1->getTerminator());
+  if (!(BB1Term && BB1Term->isUnconditional()))
+    return false;
+
+  // Do not optimize non-branch and non-switch CFG edges (to keep things
+  // relatively simple)
+  for (auto *B : predecessors(BB1))
+    if (!(isa<BranchInst>(B->getTerminator()) ||
+          isa<SwitchInst>(B->getTerminator())))
+      return false;
+```
+
+* `BB1->getParent()`：一个 `BasicBlock` 的“父亲”（Parent）是包含它的那个 `Function`
+
+​	`getEntryBlock()` 是 `Function` 类的一个成员函数，这个函数返回的是一个 `llvm::BasicBlock &` 类型，即**对入口块的引用**
+
+​	最后进行取地址操作&
+
+* `BB1->getTerminator()`：获取BB1基本块的终结符指令
+
+* `!(BB1Term && BB1Term->isUnconditional())`
+
+  如果 `BB1Term` 是 `nullptr`（即终结符不是 `BranchInst`），这个 `&&` 表达式的第一部分就是 `false`
+
+  `isUnconditional()` 是 `BranchInst` 的一个成员函数，它检查这个分支是无条件的 (`br label %dest`) 还是有条件的 (`br i1 %cond, ...`)
+
+* `predecessors(BB1)`是一个 LLVM 的辅助函数，它会返回一个**可迭代的列表**，这个列表包含了**所有能够跳转到 `BB1` 的前驱基本块**
+
+  直接或间接需要包含这个头文件`#include "llvm/IR/CFG.h"`
+
+* `!(isa<BranchInst>(B->getTerminator()) ||  isa<SwitchInst>(B->getTerminator()))`
+
+  既不是BranchInst分支指令，也不是SwitchInst
+
+  `isa<>` 是 LLVM 的“is-a”类型检查
+
+  
+
