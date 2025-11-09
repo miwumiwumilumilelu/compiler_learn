@@ -228,7 +228,7 @@ PreservedAnalyses MergeBB::run(llvm::Function &Func,
 
 **mergeDuplicatedBlock**
 
-入参资格预审：
+**入参资格预审：**
 
 1. BB1不能是入口块
 
@@ -286,5 +286,344 @@ bool MergeBB::mergeDuplicatedBlock(BasicBlock *BB1,
 
   `isa<>` 是 LLVM 的“is-a”类型检查
 
-  
+**分析后继块 (BBSucc)**
 
+如果两个块是相同的，它们很可能会跳转到同一个后继块
+
+该板块负责锁定这个共同的后继块
+
+```c++
+  BasicBlock *BBSucc = BB1Term->getSuccessor(0);
+
+  BasicBlock::iterator II = BBSucc->begin();
+  const PHINode *PN = dyn_cast<PHINode>(II);
+  Value *InValBB1 = nullptr;
+  Instruction *InInstBB1 = nullptr;
+  BBSucc->getFirstNonPHI();
+  if (nullptr != PN) {
+    // Do not optimize if multiple PHI instructions exist in the successor (to
+    // keep things relatively simple)
+    if (++II != BBSucc->end() && isa<PHINode>(II))
+      return false;
+
+    InValBB1 = PN->getIncomingValueForBlock(BB1);
+    InInstBB1 = dyn_cast<Instruction>(InValBB1);
+  }
+```
+
+`BasicBlock *BBSucc = BB1Term->getSuccessor(0);`
+
+获取BB1的唯一后继块（因为之前已经通过检查终结符指令为br无条件跳转，说明了BB1只有一个后继块）
+
+设置迭代器起点II
+
+检查后继块第一条指令是否是Phi指令`if (nullptr != PN)`
+
+`if (++II != BBSucc->end() && isa<PHINode>(II))`如果后面的非终结符指令仍然是Phi指令，即有多个Phi指令，则直接不进行处理
+
+即此 Pass 只处理 0 或 1 个 PHI 节点的情况
+
+暂存BB1传入Phi节点的值`InValBB1`，并判断这个传入的Value是否是指令`dyn_cast<Instruction>(InValBB1);`
+
+**搜索循环与“候选者” (BB2) 的快速过滤**
+
+```c++
+  unsigned BB1NumInst = getNumNonDbgInstrInBB(BB1);
+  for (auto *BB2 : predecessors(BBSucc)) {
+    // Do not optimize the entry block
+    if (BB2 == &BB2->getParent()->getEntryBlock())
+      continue;
+
+    // Only merge CFG edges of unconditional branch
+    BranchInst *BB2Term = dyn_cast<BranchInst>(BB2->getTerminator());
+    if (!(BB2Term && BB2Term->isUnconditional()))
+      continue;
+
+    // Do not optimize non-branch and non-switch CFG edges (to keep things
+    // relatively simple)
+    for (auto *B : predecessors(BB2))
+      if (!(isa<BranchInst>(B->getTerminator()) ||
+            isa<SwitchInst>(B->getTerminator())))
+        continue;
+
+    // Skip basic blocks that have already been marked for merging
+    if (DeleteList.end() != DeleteList.find(BB2))
+      continue;
+
+    // Make sure that BB2 != BB1
+    if (BB2 == BB1)
+      continue;
+
+    // BB1 and BB2 are definitely different if the number of instructions is
+    // not identical
+    if (BB1NumInst != getNumNonDbgInstrInBB(BB2))
+      continue;
+```
+
+获取BB1基本块中的非调试指令数量`BB1NumInst`
+
+遍历BB1选定的唯一后继块的所有前驱基本块，来判断是否是BB2
+
+首先检查BB2：
+
+1. 需要不是入口块
+
+2. 需要终结符指令是br无条件跳转指令，只有唯一后继块
+
+3. 需要其所有前驱块的终结符指令，必须是br或者switch，方便合并时定向
+
+4. 需要保证不在待删除队列中`DeleteList.end() != DeleteList.find(BB2)`
+
+   **`DeleteList.find(BB2)`**
+
+   - 这个函数会在 `DeleteList` 集合中**搜索** `BB2`
+   - **如果找到了**：它会返回一个**迭代器**，指向 `BB2` 在集合中的位置
+   - **如果没找到**：它会返回一个特殊的“哨兵”迭代器，这个哨兵就是 `DeleteList.end()`，不是指向集合的最后一个元素，用来表示“结束”或“未找到”
+
+5. BB2 ! = BB1
+
+6. 其指令数量必须等于BB2中指令数量（最基本）
+
+**PHI 节点一致性检查 (关键逻辑)**
+
+检查BB2遍历循环中，如果BB1的后继基本块中有Phi节点，那么就检查BB2的后继基本块是否有Phi节点且一致
+
+```c++
+    if (nullptr != PN) {
+      Value *InValBB2 = PN->getIncomingValueForBlock(BB2);
+      Instruction *InInstBB2 = dyn_cast<Instruction>(InValBB2);
+
+      bool areValuesSimilar = (InValBB1 == InValBB2);
+      bool bothValuesDefinedInParent =
+          ((InInstBB1 && InInstBB1->getParent() == BB1) &&
+           (InInstBB2 && InInstBB2->getParent() == BB2));
+      if (!areValuesSimilar && !bothValuesDefinedInParent)
+        continue;
+    }
+```
+
+**`areValuesSimilar` (简单情况)** :
+
+ `BB1` 和 `BB2` 为 PHI 节点提供了**完全相同的值**。例如，它们都传入常量 `0`，或者都传入在它们之前定义的某个变量 `%x`。这是安全的
+
+**`bothValuesDefinedInParent` (复杂情况)** :
+
+`BB1` 传入 `%v1`，`BB2` 传入 `%v2`。这两个值**不同**，但是 `%v1` 是在 `BB1` *内部*定义的，而 `%v2` 是在 `BB2` *内部*定义的。如果 `BB1` 和 `BB2` 真是“孪生兄弟”，那么定义 `%v1` 和 `%v2` 的指令也应该是相同的
+
+如：
+
+`%v2 = add i32 %x, 10` 
+
+`%v1 = add i32 %x, 10`
+
+**深度比较：逐条指令验证**
+
+```c++
+    // Finally, check that all instructions in BB1 and BB2 are identical
+    LockstepReverseIterator LRI(BB1, BB2);
+    while (LRI.isValid() && canMergeInstructions(*LRI)) {
+      --LRI;
+    }
+
+    // Valid iterator  means that a mismatch was found in middle of BB
+    if (LRI.isValid())
+      continue;
+```
+
+`LockstepReverseIterator` 被创建，它会跳过终结符和调试指令，指向 `BB1` 和 `BB2` 的**最后一条真实指令**
+
+从后向前遍历每条真实指令`--LRI`
+
+1. `LRI.isValid()`: 检查是否已到达块的开头
+2. `canMergeInstructions(*LRI)`: 调用辅助函数（在 `.h` 中定义）来比较这对指令是否**完全相同**（相同的操作码，相同的操作数，并且使用安全）
+
+进行失败判断：
+
+如果 `while` 循环因为 `canMergeInstructions` 返回 `false` 而**中途退出**，此时 `LRI.isValid()` **仍然为 true**。这说明在未遍历完该基本块之前找到了一条不匹配的指令，因此 `continue` 到下一个 `BB2` 候选者
+
+**执行合并与收尾**
+
+```c++
+    unsigned UpdatedTargets = updateBranchTargets(BB1, BB2);
+    assert(UpdatedTargets && "No branch target was updated");
+    OverallNumOfUpdatedBranchTargets += UpdatedTargets;
+    DeleteList.insert(BB1);
+    NumDedupBBs++;
+
+    return true;
+  }
+
+  return false;
+}
+```
+
+`updateBranchTargets`会找到所有跳转到 `BB1` 的前驱块，并将它们的跳转目标（`br` 或 `switch`）**重定向到 `BB2`**。`BB1` 现在成了“死代码”基本块
+
+`OverallNumOfUpdatedBranchTargets` 是文件顶部用 `STATISTIC` 宏定义的**全局统计变量**。
+
+- 它将刚刚更新的跳转目标数量 (`UpdatedTargets`)，**累加**到全局的 `OverallNumOfUpdatedBranchTargets` 计数器中
+
+- 这是为了给 LLVM 的 `-stats` 功能提供数据
+- 当 Pass 运行完毕后，可以通过 `opt` 的 `-stats` 选项查看 Pass 的运行报告
+- 这一行代码会告诉你，`MergeBB` Pass 在**整个**函数中总共修改了**多少条**终结符指令（`br` 或 `switch`）
+
+`NumDedupBBs`也是一个用 `STATISTIC` 宏定义的**全局统计变量**。
+
+- `++` (自增) 操作符将 `NumDedupBBs` 计数器加 1
+
+- 同样是为了 `-stats` 报告
+- 这一行代码在每一次成功的合并（`BB1` 被合并到 `BB2`）时执行一次
+- 运行结束后，这个统计数据将告诉你 `MergeBB` Pass 总共**合并/删除**了多少个基本块
+
+
+
+**getNumNonDbgInstrInBB**
+
+```c++
+static unsigned getNumNonDbgInstrInBB(BasicBlock *BB) {
+  unsigned Count = 0;
+  for (Instruction &Instr : *BB)
+    if (!isa<DbgInfoIntrinsic>(Instr))
+      Count++;
+  return Count;
+}
+```
+
+获得真实指令数量，遍历基本块中的指令，如果不是调试指令，则count++
+
+
+
+**canMergeInstructions**
+
+```c++
+bool MergeBB::canMergeInstructions(ArrayRef<Instruction *> Insts) {
+  const Instruction *Inst1 = Insts[0];
+  const Instruction *Inst2 = Insts[1];
+  
+  if (!Inst1->isSameOperationAs(Inst2))
+    return false;
+
+  bool HasUse = !Inst1->user_empty();
+  for (auto *I : Insts) {
+    if (HasUse && !I->hasOneUse())
+      return false;
+    if (!HasUse && !I->user_empty())
+      return false;
+  }
+  
+  if (HasUse) {
+    if (!canRemoveInst(Inst1) || !canRemoveInst(Inst2))
+      return false;
+  }
+
+  assert(Inst2->getNumOperands() == Inst1->getNumOperands());
+  auto NumOpnds = Inst1->getNumOperands();
+  for (unsigned OpndIdx = 0; OpndIdx != NumOpnds; ++OpndIdx) {
+    if (Inst2->getOperand(OpndIdx) != Inst1->getOperand(OpndIdx))
+      return false;
+  }
+  return true;
+}
+```
+
+**入参`ArrayRef<Instruction *> Insts`是`LockstepReverseIterator`类的解引用**
+
+首先对指令组合进行如下检查：
+
+1. 验证两条指令是否具有相同的操作码`Inst1->isSameOperationAs(Inst2)`
+
+2. 检查是否是相同数量的Use
+
+   * Inst1有使用点，且二者如果存在任意一个使用点不止一个的情况，则不行`HasUse && !I->hasOneUse()`
+   * Inst1没有使用点，但另一个即Inst2有使用点，则也不行`!HasUse && !I->user_empty()`
+
+   即需要二者要么都0个Use，要么都只有1个Use
+
+3. 如果二者都只有1个Use，要求确保这个一次使用是安全的
+
+   * 即Use处要么在**同一个块**中（会一起被删除）
+   * 要么是**后继块的 `PHINode`**（`DeleteDeadBlock` 知道如何修复）
+
+4. 源操作数检查：
+
+   首先操作数数量需要相同`Inst2->getNumOperands() == Inst1->getNumOperands()`
+
+   且每个源操作数需要一一对应相等`Inst2->getOperand(OpndIdx) != Inst1->getOperand(OpndIdx)`
+
+   这和`bothValuesDefinedInParent`并不冲突，`bothValuesDefinedInParent`是指目的操作数不同
+
+
+
+**canRemoveInst**
+
+如果删除了 `Inst`（及其所在的整个基本块），`Inst` 的**那个唯一的Use点** 会不会因此“损坏”并导致 IR (LLVM IR) 非法
+
+```c++
+bool MergeBB::canRemoveInst(const Instruction *Inst) {
+  assert(Inst->hasOneUse() && "Inst needs to have exactly one use");
+
+  auto *PNUse = dyn_cast<PHINode>(*Inst->user_begin());
+  auto *Succ = Inst->getParent()->getTerminator()->getSuccessor(0);
+  auto *User = cast<Instruction>(*Inst->user_begin());
+
+  bool SameParentBB = (User->getParent() == Inst->getParent());
+  bool UsedInPhi = (PNUse && PNUse->getParent() == Succ &&
+                    PNUse->getIncomingValueForBlock(Inst->getParent()) == Inst);
+
+  return UsedInPhi || SameParentBB;
+}
+```
+
+`user_begin()`获取第一个用户（也是唯一的用户）
+
+看能否转型成功，判断是不是Phi指令
+
+获取后继基本块指针`*Succ`（获取 br 的第一个（也是唯一的）目标 (BBSucc)）
+
+将这个用户（它是一个 Value* ）转换为 Instruction*
+
+两种情况被允许，被认为是安全的：
+
+1. Use和Def在同一基本块中`User->getParent() == Inst->getParent()`
+2. 是Phi指令，Phi指令是当前基本块的下一个基本块中使用，且当前Inst作为Inst所在块的参数传入到了Phi指令
+
+
+
+**updateBranchTargets**
+
+找到所有跳转到 `BBToErase`（要删除的块）的“前驱块”，并将它们的目标**重定向**到 `BBToRetain`（要保留的块）
+
+**`LLVM_DEBUG`**：这是一个调试宏。只有在 `opt` 命令（LLVM 优化器）使用 `-debug` 标志运行时，这行代码才会被编译并打印调试信息
+
+```c++
+unsigned MergeBB::updateBranchTargets(BasicBlock *BBToErase, BasicBlock *BBToRetain) {
+  SmallVector<BasicBlock *, 8> BBToUpdate(predecessors(BBToErase));
+
+  LLVM_DEBUG(dbgs() << "DEDUP BB: merging duplicated blocks ("
+                    << BBToErase->getName() << " into " << BBToRetain->getName()
+                    << ")\n");
+
+  unsigned UpdatedTargetsCount = 0;
+  for (BasicBlock *BB0 : BBToUpdate) {
+    // The terminator is either a branch (conditional or unconditional) or a
+    // switch statement. One of its targets should be BBToErase. Replace
+    // that target with BBToRetain.
+    Instruction *Term = BB0->getTerminator();
+    for (unsigned OpIdx = 0, NumOpnds = Term->getNumOperands();
+         OpIdx != NumOpnds; ++OpIdx) {
+      if (Term->getOperand(OpIdx) == BBToErase) {
+        Term->setOperand(OpIdx, BBToRetain);
+        UpdatedTargetsCount++;
+      }
+    }
+  }
+
+  return UpdatedTargetsCount;
+}
+```
+
+OpIdx为索引遍历前驱基本块的操作数，找到`Term->getOperand(OpIdx) == BBToErase`操作数名为BB1（本例需要删除的）的
+
+将其重新设置为BB2`Term->setOperand(OpIdx, BBToRetain)`
+
+更新计数
