@@ -1,0 +1,103 @@
+#ifndef BVEXPR_H
+#define BVEXPR_H
+
+#include <string>
+#include <iostream>
+#include <unordered_set>
+#include <cstdint>
+
+namespace smt {
+
+#define TYPES \
+  X(Var) X(Const) X(And) X(Or) X(Xor) X(Not) X(Add) X(Eq) X(Ne) X(Mul) X(Sub) \
+  X(Lsh) X(Rsh) X(Div) X(Mod) X(Ite) X(Hole) X(Le) X(Lt) X(Abs) X(Minus) X(MulMod) \
+  X(Extr)
+
+class BvExpr {
+public:
+  #define X(x) x, 
+  enum Type {
+    TYPES
+  } ty;
+  #undef X
+
+  #define X(x) #x, 
+  static constexpr const char *names[] = {
+    TYPES
+  };
+  #undef X
+
+  BvExpr *l = nullptr, *r = nullptr, *cond = nullptr;
+  int vi = 0;
+  std::string name;
+
+  BvExpr(Type ty): ty(ty) {}
+  BvExpr(Type ty, int vi): ty(ty), vi(vi) {}
+  BvExpr(Type ty, BvExpr *l): ty(ty), l(l) {}
+  BvExpr(Type ty, BvExpr *l, int vi): ty(ty), l(l), vi(vi) {}
+  BvExpr(Type ty, BvExpr *l, BvExpr *r): ty(ty), l(l), r(r) {}
+  BvExpr(Type ty, BvExpr *cond, BvExpr *l, BvExpr *r): ty(ty), l(l), r(r), cond(cond) {}
+  BvExpr(Type ty, const std::string &name): ty(ty), name(name) {}
+  BvExpr(Type ty, int vi, const std::string &name, BvExpr *cond, BvExpr *l, BvExpr *r):
+    ty(ty), l(l), r(r), cond(cond), vi(vi), name(name) {}
+
+  void dump(std::ostream &os = std::cerr);
+};
+
+inline std::ostream &operator<<(std::ostream &os, BvExpr *expr) {
+  expr->dump(os);
+  return os;
+}
+
+#undef TYPES
+
+class BvExprContext {
+  struct Eq {
+    bool operator()(BvExpr *a, BvExpr *b) const {
+      return a->ty == b->ty && a->l == b->l && a->r == b->r && a->cond == b->cond && a->name == b->name && a->vi == b->vi;
+    }
+  };
+
+  struct Hash {
+    // From boost::hash_combine.
+    static void hash_combine(size_t &a, size_t b) {
+      a ^= b + 0x9e3779b9 + (a << 6) + (a >> 2);
+    }
+
+    size_t operator()(BvExpr *a) const {
+      size_t result = a->ty;
+      hash_combine(result, a->vi);
+      if (a->l)
+        hash_combine(result, (uintptr_t) (a->l));
+      if (a->r)
+        hash_combine(result, (uintptr_t) (a->r));
+      if (a->cond)
+        hash_combine(result, (uintptr_t) (a->cond));
+      if (a->ty == BvExpr::Var)
+        hash_combine(result, std::hash<std::string>()(a->name));
+      return result;
+    }
+  };
+
+  std::unordered_set<BvExpr*, Hash, Eq> set;
+public:
+  template<class... Args>
+  BvExpr *create(BvExpr::Type ty, Args... args) {
+    BvExpr *p = new BvExpr(ty, args...);
+    if (auto it = set.find(p); it != set.end()) {
+      delete p;
+      return *it;
+    }
+    set.insert(p);
+    return p;
+  }
+
+  ~BvExprContext() {
+    for (auto x : set)
+      delete x;
+  }
+};
+
+}
+
+#endif
