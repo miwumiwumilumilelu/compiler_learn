@@ -198,6 +198,7 @@ Token Lexer::nextToken() {
         default:
             // Unknown character
             assert(false && "Unknown character in input");
+            return Token::End;
     }
 
 }
