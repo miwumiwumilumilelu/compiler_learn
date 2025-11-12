@@ -151,6 +151,7 @@ Token Lexer::nextToken() {
                         return nextToken();
                     }
                 }
+                assert(false && "Unterminated single-line comment");
                 return Token::End;
             } else if (input[loc + 1] == '*') {
                 // Multi-line comment
@@ -161,6 +162,7 @@ Token Lexer::nextToken() {
                         return nextToken();
                     }
                 }
+                assert(false && "Unterminated multi-line comment");
                 return Token::End;
             }
             break;
@@ -200,5 +202,4 @@ Token Lexer::nextToken() {
             assert(false && "Unknown character in input");
             return Token::End;
     }
-
 }
