@@ -3,11 +3,8 @@
 #include <sstream>
 #include <string>
 
-// 包含你的 Lexer 头文件
 #include "../parse/Lexer.h"
 
-// 帮助函数：将 Token 转换为可读的字符串
-// 注意：这个函数必须在 main 之前
 std::string tokenToString(const sys::Token &tok) {
     std::stringstream ss;
     

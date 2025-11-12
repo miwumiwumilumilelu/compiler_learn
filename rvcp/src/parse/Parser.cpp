@@ -1,7 +1,7 @@
 #include "Parser.h"
 #include "ASTNode.h"
 #include "Lexer.h"
-#include "Type.h"
+
 #include "TypeContext.h"
 #include <vector>
 #include <cassert>
