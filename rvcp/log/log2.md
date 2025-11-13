@@ -47,3 +47,12 @@ T* dyn_cast(U *t) {
 
 ## Type.h
 
+
+
+Type.cpp
+
+
+
+TypeContext.h
+
+https://codereview.stackexchange.com/questions/276890/c-hash-table-hash-function-benchmark-vs-stdunordered-set-and-stdhash

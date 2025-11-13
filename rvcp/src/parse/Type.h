@@ -15,16 +15,65 @@ public:
     Type(int id): id(id) {}
 };
 
-template<class T, int TypeID>
+template<class T,int TypeID>
 class TypeImpl : public Type {
 public:
   static bool classof(Type *ty) {
-    return ty->getID() == TypeID;
+      return ty->getID() == TypeID;
   }
-
   TypeImpl(): Type(TypeID) {}
 };
 
+class IntType : public TypeImpl<IntType, __LINE__> {
+public:
+  std::string toString() const override {
+    return "int";
+  }
+};
+
+class FloatType : public TypeImpl<FloatType, __LINE__> {
+public:
+  std::string toString() const override {
+    return "float"; 
+  }
+};
+
+class VoidType : public TypeImpl<VoidType, __LINE__> {
+public:
+  std::string toString() const override { return "void"; }
+};
+
+class PointerType : public TypeImpl<PointerType, __LINE__> {
+public:
+    Type *baseType;
+    PointerType(Type *baseType): baseType(baseType) {}
+    std::string toString() const override {
+        return baseType->toString() + "*";
+    }
+};
+
+class FunctionType : public TypeImpl<FunctionType, __LINE__> {
+public:
+  Type *ret;
+  std::vector<Type*> params;
+  FunctionType(Type *ret, std::vector<Type*> params):
+    ret(ret), params(params) {}
+
+  std::string toString() const override;
+};
+
+class ASTNode;
+
+class ArrayType : public TypeImpl<ArrayType, __LINE__> {
+public:
+  Type *base;
+  std::vector<int> dims;
+  ArrayType(Type *base, std::vector<int> dims):
+    base(base), dims(dims) {}
+
+  std::string toString() const override;
+  int getSize() const;
+};
 
 }
 
