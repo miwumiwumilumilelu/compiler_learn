@@ -62,8 +62,6 @@ public:
   std::string toString() const override;
 };
 
-class ASTNode;
-
 class ArrayType : public TypeImpl<ArrayType, __LINE__> {
 public:
   Type *base;
