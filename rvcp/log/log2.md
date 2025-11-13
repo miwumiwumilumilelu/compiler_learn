@@ -348,5 +348,37 @@ compiler_learn/rvcp on  main [!?] via 🅒 base
 ➜ ./src/build/test_types    
 ```
 
-![test_types1](./test_types1.png)
+![test_types1](./img/test_types1.png)
 
+`test_types.cpp`：
+
+**类型系统的基本功能**：
+
+- `TypeContext` 工厂可以被成功创建。
+- `ctx.create<T>()` 可以正确创建**简单类型**（`IntType`, `FloatType`, `VoidType`）。
+- `ctx.create<T>(...)` 可以正确创建**复合类型**（`ArrayType`, `PointerType`, `FunctionType`）并能正确传递构造函数参数。
+
+**`toString()` 虚函数**：
+
+- 验证了 `toString()` 在所有类型中都已正确实现。
+- 验证了 `ArrayType::toString()` 的递归（`base->toString()`）是正确的，能产生 `int[3][4]`。
+- 验证了 `PointerType::toString()` 的递归是正确的，能产生 `int*` 和 `int**`。
+- 验证了 `FunctionType::toString()` 和 `interleave()` 辅助函数能正确组合参数，产生 `(int,float,int*) -> void`。
+
+**自定义 RTTI (`DynamicCast.h`)**：
+
+- `sys::cast<sys::ArrayType>(arrTy)` 的成功调用，**间接验证**了 `isa<>` 和 `ArrayType::classof()` 正在工作。
+
+**`getSize()` 逻辑**：
+
+- 验证了 `ArrayType::getSize()` **正确地返回了元素个数** (`12`)，这符合你自己的设计。
+
+**类型唯一化 (Type Interning) (最重要的验证)**：
+
+- `assert(intTy == intTy_2)` 和 `assert(arrTy == arrTy_2)` 的成功通过，**证明了 `TypeContext` 的核心功能是成功的**。
+- 这证明了你的 `struct Hash` 和 `struct Eq` 被正确实现了。
+- 当 `ctx.create<ArrayType>(intTy, ...)` 被第二次调用时，`content.insert(ptr)` 正确地检测到了重复，`delete` 了新指针，并返回了**已存在的** `arrTy` 指针。
+
+**内存管理**：
+
+- 程序**成功退出**（没有崩溃），这验证了 `~TypeContext()`（析构函数）被正确调用，并成功 `delete` 了 `content` 集合中的所有 `Type` 对象，没有导致内存损坏。
