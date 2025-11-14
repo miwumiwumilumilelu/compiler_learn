@@ -21,7 +21,7 @@ class ConstValue {
 
     std::vector<int> dims;
 
-    public:
+public:
     bool isFloat;
     ConstValue() {}
     ConstValue(int *vi, const std::vector<int> &dims): vi(vi), dims(dims), isFloat(false) {}
@@ -90,7 +90,7 @@ class Parser {
     Type *parseSimpleType();
 
     // Const-fold the node.
-    ConstValue constFold(ASTNode *node);
+    ConstValue earlyFold(ASTNode *node);
 
     ASTNode *primary();
     ASTNode *unary();
