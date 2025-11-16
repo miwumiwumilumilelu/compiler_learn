@@ -80,8 +80,8 @@ class Parser {
     template<class... T>
     bool test(T... ts) {
         if (peek(ts...)) {
-        loc++;
-        return true;
+            loc++;
+            return true;
         }
         return false;
     }
@@ -90,7 +90,7 @@ class Parser {
     Type *parseSimpleType();
 
     // Const-fold the node.
-    ConstValue earlyFold(ASTNode *node);
+    ConstValue earlyFold(ASTNode *node); 
 
     ASTNode *primary();
     ASTNode *unary();
