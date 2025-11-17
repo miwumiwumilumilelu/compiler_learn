@@ -239,3 +239,334 @@ void *Parser::getArrayInit(const std::vector<int> &dims, bool expectFloat, bool 
 return vi;  
 }
 
+ASTNode *Parser::primary() {
+    if (peek(Token::LInt)) {
+        int val = consume().vi;
+        return new IntNode(val);
+    }
+    if (peek(Token::LFloat)) {
+        float val = consume().vf;
+        return new FloatNode(val);
+    }
+    if (test(Token::LPar)) {
+        auto n = expr();
+        expect(Token::RPar);
+        return n;
+    }
+
+    if (peek(Token::Ident)) {
+        auto vs = consume().vs;
+
+        // Array access
+        if (test(Token::LBrak)) {
+            std::vector<ASTNode*> indices;
+            do {
+                indices.push_back(expr());
+                expect(Token::RBrak);
+            } while (test(Token::LBrak));
+            
+            if(test(Token::Assign)){
+                // Array assign a[...] = x;
+                auto value = expr();
+                return new ArrayAssignNode(vs, indices, value);
+            }
+            // Array access x = a[...];
+            return new ArrayAccessNode(vs, indices);
+        }
+
+        // Function call
+        if (test(Token::LPar)) {
+            std::vector<ASTNode*> args;
+            while (!test(Token::RPar)) {
+                args.push_back(expr());
+                if (!test(Token::Comma) && !peek(Token::RPar))
+                expect(Token::RPar);
+            }
+            // Take special care for _sysy_{start,stop}time.
+            // Their line numbers are encoded in their names.
+            std::string name = vs;
+            if (name.rfind("_sysy_starttime_", 0) != std::string::npos) {
+                name = "_sysy_starttime";
+                args.push_back(new IntNode(strtol(vs + 16, NULL, 10)));
+            }
+            if (name.rfind("_sysy_stoptime_", 0) != std::string::npos) {
+                name = "_sysy_stoptime";
+                args.push_back(new IntNode(strtol(vs + 15, NULL, 10)));
+            }
+            return new CallNode(name, args);
+        }
+
+        return new VarRefNode(vs);
+    }
+    std::cerr << "unexpected token " << peek().type << "\n";
+    printSurrounding();
+    assert(false);
+}
+
+ASTNode *Parser::unary() {
+  if (test(Token::Minus))
+    return new UnaryNode(UnaryNode::Minus, unary());
+
+  if (test(Token::Plus))
+    return unary();
+
+  if (test(Token::Not))
+    return new UnaryNode(UnaryNode::Not, unary());
+
+  return primary();
+}
+
+ASTNode *Parser::mul() {
+    auto n = unary();
+    while (peek(Token::Mul, Token::Div, Token::Mod)) {
+        switch (consume().type) {
+        case Token::Mul:
+            n = new BinaryNode(BinaryNode::Mul, n, unary());
+            break;
+        case Token::Div:
+            n = new BinaryNode(BinaryNode::Div, n, unary());
+            break;
+        case Token::Mod:
+            n = new BinaryNode(BinaryNode::Mod, n, unary());
+            break;
+        default:
+            assert(false);
+        }
+    }
+    return n;
+}
+
+ASTNode *Parser::add() {
+    auto n = mul();
+    while (peek(Token::Plus, Token::Minus)) {
+        switch (consume().type) {
+        case Token::Plus:
+            n = new BinaryNode(BinaryNode::Add, n, mul());
+            break;
+        case Token::Minus:
+            n = new BinaryNode(BinaryNode::Sub, n, mul());
+            break;
+        default:
+            assert(false);
+        }
+    }
+    return n;
+}
+
+ASTNode *Parser::rel() {
+    auto n = add();
+    while (peek(Token::Le, Token::Lt, Token::Ge, Token::Gt)) {
+        switch (consume().type) {
+        case Token::Le:
+            n = new BinaryNode(BinaryNode::Le, n, add());
+            break;
+        case Token::Lt:
+            n = new BinaryNode(BinaryNode::Lt, n, add());
+            break;
+        case Token::Ge:
+            // a >= b  -> canonicalize to (b <= a)
+            n = new BinaryNode(BinaryNode::Le, add(), n);
+            break;
+        case Token::Gt:
+            // a > b  -> canonicalize to (b < a)
+            n = new BinaryNode(BinaryNode::Lt, add(), n);
+            break;
+        default:
+            assert(false);
+        }
+    }
+    return n;
+}
+
+ASTNode *Parser::eq() {
+    auto n = rel();
+    while (peek(Token::Eq, Token::Ne)) {
+        switch (consume().type) {
+        case Token::Eq:
+            n = new BinaryNode(BinaryNode::Eq, n, rel());
+            break;
+        case Token::Ne:
+            n = new BinaryNode(BinaryNode::Ne, n, rel());
+            break;
+        default:
+            assert(false);
+        }
+    }
+    return n;
+}
+
+ASTNode *Parser::land() {
+    auto n = eq();
+    while (test(Token::And)) {
+        n = new BinaryNode(BinaryNode::And, n, eq());
+    }
+    return n;
+}
+
+ASTNode *Parser::lor() {
+    auto n = land();
+    while (test(Token::Or)) {
+        n = new BinaryNode(BinaryNode::Or, n, land());
+    }
+    return n;
+}
+
+ASTNode *Parser::expr() {
+    return lor();
+}
+
+ASTNode *Parser::stmt() {
+    if (test(Token::Semicolon)) {
+        return new EmptyNode(); 
+    }
+
+    if (test(Token::LBrace)) {
+        return block();
+    }
+
+    if (test(Token::Return)) {
+        if (test(Token::Semicolon))
+            return new ReturnNode(currentFunc, nullptr);
+        auto ret = new ReturnNode(currentFunc, expr());
+        expect(Token::Semicolon);
+        return ret;
+    }
+
+    if (test(Token::If)) {
+        expect(Token::LPar);
+        auto cond = expr();
+        expect(Token::RPar);
+        auto ifso = stmt();
+        ASTNode *ifnot = nullptr;
+        if (test(Token::Else)) {
+            ifnot = stmt();
+        }
+        return new IfNode(cond, ifso, ifnot);
+    }
+
+    if (test(Token::While)) {
+        expect(Token::LPar);
+        auto cond = expr();
+        expect(Token::RPar);
+        auto body = stmt();
+        return new WhileNode(cond, body);
+    }
+
+    if (test(Token::Break)) {
+        expect(Token::Semicolon);
+        return new BreakNode();
+    }
+
+    if (test(Token::Continue)) {
+        expect(Token::Semicolon);
+        return new ContinueNode();
+    }
+
+    if (peek(Token::Const, Token::Int, Token::Float))
+    return varDecl(false);
+
+    auto n = expr();
+    if (test(Token::Assign)) {
+        if (!isa<VarRefNode>(n)) {
+        std::cerr << "expected lval\n";
+        assert(false);
+        }
+        auto value = expr();
+        expect(Token::Semicolon);
+        return new AssignNode(n, value);
+    }
+
+    expect(Token::Semicolon);
+    return n;
+}
+
+BlockNode *Parser::block() {
+    SemanticScope scope(*this);
+    expect(Token::LBrace);
+    std::vector<ASTNode *> nodes;
+    while (!test(Token::RBrace)) {
+        nodes.push_back(stmt());
+    }
+    return new BlockNode(nodes);
+}
+
+TransparentBlockNode *Parser::varDecl(bool global) {
+    bool mut = !test(Token::Const);
+    auto base = parseSimpleType();
+    std::vector<VarDeclNode*> decls;
+    do {
+        Type *ty= base;
+        std::string name = expect(Token::Ident).vs;
+        std::vector<int> dims;
+        while (test(Token::LBrak)) {
+            dims.push_back(earlyFold(expr()).getInt());
+            expect(Token::RBrak);
+        }
+        if (dims.size() != 0)
+            ty = new ArrayType(ty, dims);
+
+        ASTNode *init = nullptr;
+        // Array
+        if (test(Token::Assign)) {
+            bool isFloat = isa<FloatType>(base);
+            if (isa<ArrayType>(ty)) {
+                auto arrayInit = getArrayInit(dims, isFloat, global);
+                init = !global
+                    ? (ASTNode*) new LocalArrayNode((ASTNode **) arrayInit)
+                    : isFloat
+                        ? new ConstArrayNode((float*) arrayInit)
+                        : new ConstArrayNode((int*) arrayInit);
+                // We can never infer the real type of ConstArrayNode in Sema.
+                // Must place it here.
+                init->type = ty;
+            }
+            // simple
+            else {
+                init = expr();
+                if (global)
+                init = !isFloat
+                    ? (ASTNode*) new IntNode(earlyFold(init).getInt())
+                    : new FloatNode(earlyFold(init).getFloat());
+            }
+        }
+        // No initialization; all must be zero.
+        if (!init && global) {
+            if (auto arrTy = dyn_cast<ArrayType>(ty)) {
+                int size = arrTy->getSize();
+                if (isa<FloatType>(base)) {
+                    float *ptr = new float[size];
+                    memset(ptr, 0, sizeof(float) * size);
+                    init = new ConstArrayNode(ptr);
+                } 
+                else {
+                    int *ptr = new int[size];
+                    memset(ptr, 0, sizeof(int) * size);
+                    init = new ConstArrayNode(ptr);
+                }
+                init->type = ty;
+            } 
+            else init = new IntNode(0);
+        }
+
+        auto decl = new VarDeclNode(name, init, mut, global);
+        decl->type = ty;
+        decls.push_back(decl);
+
+        // Record in symbol table.
+        if (!mut || global) {
+            assert(init);
+            symbols[name] = earlyFold(init);
+        }
+
+        if (!test(Token::Comma) && !peek(Token::Semicolon))
+            expect(Token::Comma);
+    } while (!test(Token::Semicolon));
+
+    return new TransparentBlockNode(decls);
+}
+
+
+
+
+
+
