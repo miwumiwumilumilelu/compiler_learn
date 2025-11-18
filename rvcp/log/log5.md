@@ -159,6 +159,26 @@ ASTNode *Parser::rel() {
 
 为了减少MIR量，指令集复杂度，对`Ge`和`Gt`进行了规范化(用`Le`和`Lt`来表示)，在`ASTNode.h`中有提到
 
+```c++
+            // Take special care for _sysy_{start,stop}time.
+            // Their line numbers are encoded in their names.
+            std::string name = vs;
+            if (name.rfind("_sysy_starttime_", 0) != std::string::npos) {
+                name = "_sysy_starttime";
+                args.push_back(new IntNode(strtol(vs + 16, NULL, 10)));
+            }
+            if (name.rfind("_sysy_stoptime_", 0) != std::string::npos) {
+                name = "_sysy_stoptime";
+                args.push_back(new IntNode(strtol(vs + 15, NULL, 10)));
+            }
+```
+针对特殊的ident，用于调试
+
+name.rfind("xxx", 0) name在起始位置0找到了xxx   
+std::string::npos是 rfind 在“未找到”时返回的特殊值
+
+_sysy_starttime_ 字符串有 16 个字符。vs + 16 会计算出一个新指针     
+strtol(vs + 16, NULL, 10) str转int，以10进制解析
 
 
 ```c++

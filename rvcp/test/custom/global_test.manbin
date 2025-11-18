@@ -1,0 +1,6 @@
+int count;
+
+int main() {
+  count = 5;
+  return count;
+}
