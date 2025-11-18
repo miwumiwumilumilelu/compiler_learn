@@ -29,15 +29,13 @@ while (!test(Token::RPar)) {
 bool isPointer = false;
 if(test(Token::LBrak)) {
     isPointer = true;
-    // Consume the expression in first [], but ignore its value
-    if (!peek(Token::RBrak)) {
-        expr();  // consume but ignore the first dimension
-    }
     expect(Token::RBrak);
 }
 ```
 
-通过 `isPointer` 标志来处理 C 语言中 `int a[]` 和 `int a[][5]` 退化为指针（`int*` 和 `int(*)[5]`）的规则
+通过 `isPointer` 标志来处理 manbin 语言中 `int a[]` 和 `int a[][5]` 退化为指针（`int*` 和 `int(*)[5]`）的规则
+
+值得注意的是！！！manbin语言规范了入参，仅允许数组以 Type a[ ] [x] [y] [...] 的格式作为参数，明确必须带有[ ]来标识其为指针`PointerType`
 
 ```c++
 // ... (解析剩余维度 [][5][10])
@@ -49,14 +47,11 @@ if (isPointer)
 
 `ty` 变量被用作“构建器”，从内到外被wrapped：`IntType` -> `ArrayType` -> `PointerType`
 
-| 参数形式        | isPointer | dims     | 最终类型                              |
-| --------------- | --------- | -------- | ------------------------------------- |
-| `int x`         | false     | 空 `{}`  | `IntType`                             |
-| `int a[]`       | true      | 空 `{}`  | `PointerType(IntType)`                |
-| `int a[5]`      | true      | 空 `{}`  | `PointerType(IntType)`                |
-| `int a[][4]`    | true      | `{4}`    | `PointerType(ArrayType(int, {4}))`    |
-| `int a[5][4]`   | true      | `{4}`    | `PointerType(ArrayType(int, {4}))`    |
-| `int a[][3][4]` | true      | `{3, 4}` | `PointerType(ArrayType(int, {3, 4}))` |
+| 参数形式     | isPointer | dims    | 最终类型                           |
+| ------------ | --------- | ------- | ---------------------------------- |
+| `int x`      | false     | 空 `{}` | `IntType`                          |
+| `int a[]`    | true      | 空 `{}` | `PointerType(IntType)`             |
+| `int a[][4]` | true      | `{4}`   | `PointerType(ArrayType(int, {4}))` |
 
 ```c++
 auto decl = new FnDeclNode(name, args, block());

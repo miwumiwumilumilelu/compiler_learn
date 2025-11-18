@@ -579,10 +579,6 @@ FnDeclNode *Parser::fnDecl() {
         bool isPointer = false;
         if(test(Token::LBrak)) {
             isPointer = true;
-            // Consume the expression in first [], but ignore its value
-            if (!peek(Token::RBrak)) {
-                expr();  // consume but ignore the first dimension
-            }
             expect(Token::RBrak);
         }
 
