@@ -1,7 +1,0 @@
-int count;
-
-int main() {
-  count = 1;
-  count = 2;
-  return count;
-}

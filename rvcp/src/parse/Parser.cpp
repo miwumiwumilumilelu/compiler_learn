@@ -420,7 +420,8 @@ ASTNode *Parser::stmt() {
         return new EmptyNode(); 
     }
 
-    if (test(Token::LBrace)) {
+    //debug: replace test with peek
+    if (peek(Token::LBrace)) {
         return block();
     }
 
