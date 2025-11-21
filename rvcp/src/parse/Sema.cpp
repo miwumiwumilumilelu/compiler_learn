@@ -25,7 +25,7 @@ PointerType* Sema::decay(ArrayType* arrTy) {
 ArrayType* Sema::raise(PointerType* ptr) {
     std::vector<int> dims {1};
     Type *base;
-    if (auto pointee = dynamic_cast<ArrayType*>(ptr->baseType)) {
+    if (auto pointee = dyn_cast<ArrayType>(ptr->baseType)) {
         for (auto x : pointee->dims) {
             dims.push_back(x);
         }
@@ -38,7 +38,7 @@ ArrayType* Sema::raise(PointerType* ptr) {
 }
 
 Type *Sema::infer(ASTNode *node) {
-    
+    // Parser has already checked the syntax of the AST
     if (auto fn = dyn_cast<FnDeclNode>(node)) {
         assert(fn->type);
         auto fnTy = cast<FunctionType>(fn->type);
@@ -61,24 +61,24 @@ Type *Sema::infer(ASTNode *node) {
         for (auto x : blk->nodes) {
             infer(x);
         }
-        return ctx.create<VoidType>();
+        return node->type = ctx.create<VoidType>();
     }
 
     if (auto blk = dyn_cast<TransparentBlockNode>(node)) {
         for (auto x : blk->nodes) {
             infer(x);
         }
-        return ctx.create<VoidType>();
+        return node->type = ctx.create<VoidType>();
     }
 
     if (isa<IntNode>(node)) {
-        return ctx.create<IntType>();
+        return node->type = ctx.create<IntType>();
     }
     if (isa<FloatNode>(node)) {
-        return ctx.create<FloatType>();
+        return node->type = ctx.create<FloatType>();
     }
     if (isa<BreakNode>(node)||isa<ContinueNode>(node)|isa<EmptyNode>(node)) {
-        return ctx.create<VoidType>();
+        return node->type = ctx.create<VoidType>();
     }
 
     if (auto binary = dyn_cast<BinaryNode>(node)) {
@@ -145,7 +145,7 @@ Type *Sema::infer(ASTNode *node) {
         if (!vardecl->init) {
             return ctx.create<VoidType>();
         }
-        if (vardecl->global && !vardecl->mut){
+        if (vardecl->global || !vardecl->mut){
             vardecl->init->type = node->type;
         } else {
             auto ty = infer(vardecl->init);
@@ -171,10 +171,224 @@ Type *Sema::infer(ASTNode *node) {
         return ctx.create<VoidType>();
     }
 
-    
-        
+    if (auto ret = dyn_cast<ReturnNode>(node)) {
+        if (!ret->node) {
+            return ctx.create<VoidType>();
+        }
+        auto ty = infer(ret->node);
+        auto retTy = cast<FunctionType>(currentFunc)->ret;
+        if (isa<IntType>(retTy) && isa<FloatType>(ty)) {
+            ret->node = new UnaryNode(UnaryNode::Float2Int, ret->node);
+            ret->node->type = ctx.create<IntType>();
+            return ctx.create<VoidType>();
+        }
+        if (isa<FloatType>(retTy) && isa<IntType>(ty)) {
+            ret->node = new UnaryNode(UnaryNode::Int2Float, ret->node);
+            ret->node->type = ctx.create<FloatType>();
+            return ctx.create<VoidType>();
+        }
+        if (retTy != ret->node->type) {
+            std::cerr << "bad return type\n";
+            assert(false);
+        }
+        return ctx.create<VoidType>();
+    }
 
-    
-    return nullptr;
-    
+    if (auto ref = dyn_cast<VarRefNode>(node)) {
+        if (!symbols.count(ref->name)) {
+            std::cerr << "undefined variable: " << ref->name << std::endl;
+            assert(false);
+        }
+        auto ty = symbols[ref->name];
+        if (auto arrTy = dyn_cast<ArrayType>(ty))
+            return node->type = decay(arrTy);
+        
+        return node->type = ty;
+    }
+
+    if (auto branch = dyn_cast<IfNode>(node)) {
+        auto condTy = infer(branch->cond);
+        if (isa<FloatType>(condTy)) {
+            auto zero = new FloatNode(0);
+            zero->type = ctx.create<FloatType>();
+            auto ne = new BinaryNode(BinaryNode::Ne, branch->cond, zero);
+            ne->type = ctx.create<IntType>();
+            branch->cond = ne;
+        }
+        infer(branch->ifso);
+        if (branch->ifnot)
+            infer(branch->ifnot);
+        return node->type = ctx.create<VoidType>();
+    }
+
+    if (auto loop = dyn_cast<WhileNode>(node)) {
+        auto condTy = infer(loop->cond);
+        if (!isa<IntType>(condTy)) {
+            // loop condition must be int
+            std::cerr << "bad condition\n";
+            assert(false);
+        }
+        infer(loop->body);
+        return node->type = ctx.create<VoidType>();
+    }
+
+    if (auto assign = dyn_cast<AssignNode>(node)) {
+        auto lty = infer(assign->l);
+        auto rty = infer(assign->r);
+        if (isa<IntType>(lty) && isa<FloatType>(rty)) {
+            // Float2Int
+            assign->r = new UnaryNode(UnaryNode::Float2Int, assign->r);
+            assign->r->type = ctx.create<IntType>();
+            return ctx.create<VoidType>();
+        }
+        if (isa<FloatType>(lty) && isa<IntType>(rty)) {
+            // Int2Float
+            assign->r = new UnaryNode(UnaryNode::Int2Float, assign->r);
+            assign->r->type = ctx.create<FloatType>();
+            return ctx.create<VoidType>();
+        }
+        if (lty != rty) {
+            std::cerr << "bad assignment\n";
+            assert(false);
+        }
+        return node->type = ctx.create<VoidType>();
+    }
+
+    if (auto call = dyn_cast<CallNode>(node)) {
+        auto fnTy = cast<FunctionType>(symbols[call->callee]);
+        for (size_t i = 0; i < fnTy->params.size(); i++) {
+            ASTNode *&x = call->args[i];
+            auto ty = infer(x);
+            auto argTy = fnTy->params[i];
+
+            if (isa<FloatType>(ty) && isa<IntType>(argTy)) {
+                x = new UnaryNode(UnaryNode::Float2Int, x);
+                x->type = ctx.create<IntType>();
+                continue;
+            }
+
+            if (isa<IntType>(ty) && isa<FloatType>(argTy)) {
+                x = new UnaryNode(UnaryNode::Int2Float, x);
+                x->type = ctx.create<FloatType>();
+                continue;
+            }
+        }
+
+        if (!symbols.count(call->callee)) {
+            std::cerr << "undefined function: " << call->callee << std::endl;
+            assert(false);
+        }
+        return node->type = fnTy->ret; 
+    }
+
+    if (auto access = dyn_cast<ArrayAccessNode>(node)) {
+        auto realTy = symbols[access->array];
+        ArrayType *arrTy;
+        if (isa<ArrayType>(realTy))
+            arrTy = cast<ArrayType>(realTy);
+        else 
+            arrTy = raise(cast<PointerType>(realTy));
+
+        access->arrayType = arrTy;
+        std::vector<int> NewDims;
+        for (int i = access->indices.size(); i < arrTy->dims.size(); i++)
+            NewDims.push_back(arrTy->dims[i]);
+        // check index type,all must be int.
+        for (auto x: access->indices) {
+            auto ty = infer(x);
+            assert(isa<IntType>(ty));
+        }
+        auto resultTy = NewDims.size() ? 
+        (Type*) decay(ctx.create<ArrayType>(arrTy->base, NewDims))
+        : arrTy->base;
+        return node->type = resultTy;
+    }
+
+    if (auto arr = dyn_cast<LocalArrayNode>(node)) {
+        assert(node->type);
+        auto arrTy = cast<ArrayType>(node->type);
+        auto baseTy = arrTy->base;
+        auto size = arrTy->getSize();
+        for (int i = 0; i < size; i++) {
+            auto &x = arr->elements[i];
+            if (!x) continue;
+            auto ty = infer(x);
+
+            if (isa<FloatType>(ty) && isa<IntType>(baseTy)) {
+                x = new UnaryNode(UnaryNode::Float2Int, x);
+                x->type = ctx.create<IntType>();
+                continue;
+            }
+
+            if (isa<IntType>(ty) && isa<FloatType>(baseTy)) {
+                x = new UnaryNode(UnaryNode::Int2Float, x);
+                x->type = ctx.create<FloatType>();
+                continue;
+            }
+        }
+        return node->type;
+    }
+
+    if (auto write = dyn_cast<ArrayAssignNode>(node)) {
+        auto realTy = symbols[write->array];
+        ArrayType *arrTy;
+        if (isa<ArrayType>(realTy))
+            arrTy = cast<ArrayType>(realTy);
+        else
+            arrTy = raise(cast<PointerType>(realTy));
+
+        auto baseTy = arrTy->base;
+        assert(write->indices.size() == arrTy->dims.size());
+        write->arrayType = arrTy;
+        // check index type,all must be int.
+        for (auto x : write->indices) {
+            auto ty = infer(x);
+            assert(isa<IntType>(ty));
+        }
+
+        auto valueTy = infer(write->value);
+
+        if (isa<FloatType>(baseTy) && isa<IntType>(valueTy)) {
+            write->value = new UnaryNode(UnaryNode::Int2Float, write->value);
+            write->value->type = ctx.create<FloatType>();
+        }
+
+        if (isa<IntType>(baseTy) && isa<FloatType>(valueTy)) {
+            write->value = new UnaryNode(UnaryNode::Float2Int, write->value);
+            write->value->type = ctx.create<IntType>();
+        }
+
+        return node->type = ctx.create<VoidType>();
+    }
+    std::cerr << "cannot infer node " << node->getID() << "\n";
+    assert(false);  
+}
+
+Sema::Sema(ASTNode *node, TypeContext &ctx):ctx(ctx) {
+    auto intTy = ctx.create<IntType>();
+    auto floatTy = ctx.create<FloatType>();
+    auto voidTy = ctx.create<VoidType>();
+    // use ArrayType{1} to represent Array Pointer
+    auto intPtrTy = ctx.create<ArrayType>(intTy, std::vector<int> {1});
+    auto floatPtrTy = ctx.create<ArrayType>(floatTy, std::vector<int> {1});
+
+    using Args = std::vector<Type*>;
+    Args empty;
+
+    symbols = {
+        { "getint", ctx.create<FunctionType>(intTy, empty) },
+        { "getch", ctx.create<FunctionType>(intTy, empty) },
+        { "getfloat", ctx.create<FunctionType>(floatTy, empty) },
+        { "getarray", ctx.create<FunctionType>(intTy, Args { intPtrTy }) },
+        { "getfarray", ctx.create<FunctionType>(intTy, Args { floatPtrTy } ) },
+        { "putint", ctx.create<FunctionType>(voidTy, Args { intTy }) },
+        { "putch", ctx.create<FunctionType>(voidTy, Args { intTy }) },
+        { "putfloat", ctx.create<FunctionType>(voidTy, Args { floatTy }) },
+        { "putarray", ctx.create<FunctionType>(voidTy, Args { intTy, intPtrTy }) },
+        { "putfarray", ctx.create<FunctionType>(voidTy, Args { intTy, floatPtrTy }) },
+        { "_sysy_starttime", ctx.create<FunctionType>(voidTy, Args { intTy }) },
+        { "_sysy_stoptime", ctx.create<FunctionType>(voidTy, Args { intTy }) },
+    };
+
+    infer(node);
 }
