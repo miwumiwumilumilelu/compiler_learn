@@ -103,7 +103,7 @@ Type *Sema::infer(ASTNode *node) {
         }
 
         // INT2FLOAT
-        if (isa<FloatNode>(lty) && isa<IntType>(rty)) {
+        if (isa<FloatType>(lty) && isa<IntType>(rty)) {
             binary -> r = new UnaryNode(UnaryNode::Int2Float, binary->r);
             rty = binary -> r -> type = ctx.create<FloatType>();
         }

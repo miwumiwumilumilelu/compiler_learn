@@ -1,6 +1,8 @@
 #ifndef DYNAMICCAST_H
 #define DYNAMICCAST_H
 
+#include <cassert>
+
 namespace sys {
 
 template<typename T, typename U>
