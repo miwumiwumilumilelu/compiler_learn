@@ -1,14 +1,12 @@
-#ifndef OPBASE_H
-#define OPBASE_H
+# 2025.11.29 后端codegen——定义IR静态结构
 
-#include "../utils/DynamicCast.h"
-#include <list>
-#include <string>
-#include <set>
-#include <iostream>
+效仿Mlir的IR设计与LLVM IR，我计划实现一个支持SSA形式的IR，因此从SSA性质与Use-Def链（自底向上）入手编写；并且要考虑到从CFG中读取信息，因此设计理念偏向于CFGIR，并结合了Mlir中的嵌套机制
 
-namespace sys {
 
+
+## src/codegen/OpBase.h
+
+```c++
 class Op;
 class BasicBlock;
 
@@ -28,7 +26,15 @@ public:
     bool operator<=(Value x) const { return defining <= x.defining; }
     bool operator>=(Value x) const { return defining >= x.defining; }
 };
+```
 
+对于一个值遵循SSA仅一次定义的性质`Op defining`，因此构造函数需要传入定义它的指令
+
+这里支持f128和i128类型，并给出指令Def处的比较操作符重载，后续会对std::map内的Value进行活跃变量分析并以此来区分不同Value（SSA性质）
+
+
+
+```c++
 // CFG (control flow graph)
 class Region {
     std::list<BasicBlock*> bb;
@@ -69,7 +75,26 @@ public:
     void erase();
     Region(Op *parent): parent(parent) {}
 };
+```
 
+重头戏来了，在LLVM中我们将模块划分为函数，将函数划分为基本块，而mlir大大简化了这一层级结构，引入了区域，使得 IR 变成了递归嵌套的结构（Op -> Region -> BasicBlock -> Op）
+
+这样只需要考虑Op和Region机制即可，这里使用**双向链表存储属于该区域的所有基本块**`std::list<BasicBlock*>`，方便在任意位置插入、删除或移动基本块，对Entry Block 和 Exit Block 进行获取等基础操作
+
+然后就是整个CFG修改的基础操作
+
+最后也是最重要的是在对CFG进行分析时考虑到，一个基本块肯定需要能查前驱后继，计算支配树、逆支配树以及支配边界（用于诸多优化Pass和析构ø函数），计算LiveIn、LiveOut集合（活跃变量区间、寄存器分配等需要）
+
+```cpp
+void dump(std::ostream &os, int depth);
+void showLiveIn();
+```
+
+给出两个调试函数用来打印IR结构（depth），和活跃变量信息
+
+
+
+```c++
 class SimplifyCFG;
 class BasicBlock {
   std::list<Op*> ops;
@@ -91,24 +116,15 @@ class BasicBlock {
 
   friend class Region;
   friend class Op;
+```
+
+Op与BasicBlock也是使用list存，方便查询、插入和删除操作等
+
+这里设置友元，使得其可以访问BasicBlock类的private成员
+
+```c++
 public:
-  std::set<BasicBlock*> preds;
-  std::set<BasicBlock*> succs;
-  using iterator = decltype(ops)::iterator;
-
-  BasicBlock(Region *parent, Region::iterator place):
-    parent(parent), place(place) {}
-
-  auto &getOps() { return ops; }
-  int getOpCount() { return ops.size(); }
-  Op *getFirstOp() const { return *ops.begin(); }
-  Op *getLastOp() const { return *--ops.end(); }
-
-  iterator begin() { return ops.begin(); }
-  iterator end() { return ops.end(); }
-
-  Region *getParent() const { return parent; }
-
+	...
   const auto &getDominanceFrontier() const { return domFront; }
   const auto &getPDoms() const { return pdoms; }
   const auto &getLiveIn() const { return liveIn; }
@@ -124,33 +140,15 @@ public:
   bool dominates(const BasicBlock *bb) const { return bb->dominatedBy(this); }
   bool postDominatedBy(const BasicBlock *bb) const { return pdoms.count(const_cast<BasicBlock*>(bb)); }
   bool postDominates(const BasicBlock *bb) const { return bb->pdoms.count(const_cast<BasicBlock*>(bb)); }
-
-  // Inserts before `at`.
-  void insert(iterator at, Op *op);
-  void insertAfter(iterator at, Op *op);
-  void remove(iterator at);
-
-  // These inline functions will copy-paste,
-  // without dealing with terminators etc.
-  void inlineToEnd(BasicBlock *bb);
-  void inlineBefore(Op *op);
-
-  // Moves every op after `op` to `dest`, including `op`.
-  void splitOpsAfter(BasicBlock *dest, Op *op);
-  // Moves every op before `op` to `dest`, not including `op`.
-  void splitOpsBefore(BasicBlock *dest, Op *op);
-
-  void moveBefore(BasicBlock *bb);
-  void moveAfter(BasicBlock *bb);
-  void moveToEnd(Region *region);
-
-  void erase();
-
-  // Does not check if there's any preds.
-  // Used when a lot of blocks are going to get removed.
-  void forceErase();
+	...
 };
+```
 
+Op和BasicBlock的操作，类比于上一层级关系
+
+
+
+```cpp
 class Attr {
   int refcnt = 0;
 
@@ -164,7 +162,13 @@ public:
   virtual std::string toString() = 0;
   virtual Attr *clone() = 0;
 };
+```
 
+管理指令静态属性（如整数常量值、函数名等）
+
+
+
+```c++
 class Op {
 protected:
   std::set<Op*> uses;
@@ -184,70 +188,16 @@ protected:
   void removeOperandUse(Op *op);
 
   static std::vector<Op*> toDelete;
+```
+
+Use-Def链，其中Def仅为1，Use可以有多处
+
+支持移除UseOp
+
+```c++
 public:
   const int opid;
-
-  const std::string &getName() { return opname; }
-  BasicBlock *getParent() { return parent; }
-  Op *getParentOp();
-  Op *prevOp();
-  Op *nextOp();
-
-  const auto &getUses() const { return uses; }
-  const auto &getRegions() const { return regions; }
-  const auto &getOperands() const { return operands; }
-  const auto &getAttrs() const { return attrs; }
-
-  int getOperandCount() const { return operands.size(); }
-  int getRegionCount() const { return regions.size(); }
-
-  Region *getRegion(int i = 0) { return regions[i]; }
-  Value getOperand(int i = 0) { return operands[i]; }
-
-  void pushOperand(Value v);
-  void removeAllOperands();
-  void setOperand(int i, Value v);
-  void removeOperand(int i);
-  void removeOperand(Op *v);
-  int replaceOperand(Op *before, Value v);
-
-  void removeAllAttributes();
-  void removeAttribute(int i);
-  void setAttribute(int i, Attr *attr);
-
-  // This does a linear search, as Ops at most have 2 regions.
-  void removeRegion(Region *region);
-
-  Value getResult() { return Value(this); }
-  Value::Type getResultType() const { return resultTy; }
-  void setResultType(Value::Type ty) { resultTy = ty; }
-
-  Op(int id, Value::Type resultTy, const std::vector<Value> &values);
-  Op(int id, Value::Type resultTy, const std::vector<Value> &values, const std::vector<Attr*> &attrs);
-
-  Region *appendRegion();
-  BasicBlock *createFirstBlock();
-  void erase();
-  void replaceAllUsesWith(Op *other);
-
-  void dump(std::ostream& = std::cerr, int depth = 0);
-  
-  void moveBefore(Op *op);
-  void moveAfter(Op *op);
-  void moveToEnd(BasicBlock *block);
-  void moveToStart(BasicBlock *block);
-
-  bool inside(Op *op);
-  bool atFront() { return this == parent->getFirstOp(); }
-  bool atBack() { return this == parent->getLastOp(); }
-
-  // erase() will delay its deletion.
-  // This function must be called to actually call `operator delete`.
-  static void release();
-
-  static Op *getPhiFrom(Op *phi, BasicBlock *bb);
-  static BasicBlock *getPhiFrom(Op *phi, Op *op);
-
+	...//Op操作，在使用中再增量开发
   template<class T>
   bool has() {
     for (auto x : attrs)
@@ -315,12 +265,30 @@ public:
     return cast<T>(parent);
   }
 };
+```
 
+设置OpID，需要为指令进行编号，这很重要，各个Pass中会用到，代码实质上就是字符串（如在公共代码提取Pass中用于后缀树找最大公共子串来减少跳转指令从而尽量避免流水线中断），若将每一个字符记录就会很麻烦且浪费内存，所以使用编号来简化标识
+
+定义模板函数用于检查或获取依附于当前指令上的静态属性，属性存储在 `std::vector<Attr*> attrs` 中
+
+* 对于确定属性的Op获取其T属性指针时，如果get不到，就直接assert，而不会return false
+
+定义模板函数用于IR 结构遍历，进行向上和向下的类型化搜索
+
+* 这里支持了指定类型的当前Op的父亲Op查找，指定类型的当前Op嵌套下的所有Op查找（使用递归遍历Op->region->bb->op）
+
+
+
+```c++
 inline std::ostream &operator<<(std::ostream &os, Op *op) {
   op->dump(os);
   return os;
 }
+```
 
+重载了 cpp 标准输出流的 `<<` 运算符，调用dump()
+
+```c++
 template<class T, int OpID>
 class OpImpl : public Op {
 public:
@@ -334,7 +302,13 @@ public:
   OpImpl(Value::Type resultTy, const std::vector<Value> &values, const std::vector<Attr*> &attrs):
     Op(OpID, resultTy, values, attrs) {}
 };
+```
 
+定义OpImpl实现类模板函数
+
+支持验证ID——classof，检查传入的 `op` 的 `opid` 成员是否等于模板参数 `OpID`
+
+```c++
 template<class T, int AttrID>
 class AttrImpl : public Attr {
 public:
@@ -345,6 +319,13 @@ public:
   AttrImpl(): Attr(AttrID) {}
 };
 
-};
 
-#endif // OPBASE_H
+}; //namespace
+#endif
+```
+
+定义AttrImpl实现类模板函数
+
+
+
+这套 IR 设计构建了一个SSA形式IR但区别于LLVM的不同层次架构的清亮编译器后端基础设施，方便后续编写复杂的优化Pass，此外对于特殊Pass需要返回来进行增量修改
