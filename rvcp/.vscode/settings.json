@@ -1,8 +1,5 @@
 {
     "files.associations": {
-        "__hash_table": "cpp",
-        "__tree": "cpp",
-        "forward_list": "cpp",
-        "list": "cpp"
+        "vector": "cpp"
     }
 }

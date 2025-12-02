@@ -18,7 +18,7 @@ public:
     enum Type {
         unit, i32, i64, f32, i128, f128
     };
-    Value(){}; // uninitialized, for std::map
+    Value(){} // uninitialized, for std::map
     Value(Op *from);
 
     bool operator==(Value x) const { return defining == x.defining; }
@@ -31,18 +31,18 @@ public:
 
 // CFG (control flow graph)
 class Region {
-    std::list<BasicBlock*> bb;
+    std::list<BasicBlock*> bbs;
     Op *parent;
     void showLiveIn();
 public:
-    using iterator = decltype(bb)::iterator;
+    using iterator = decltype(bbs)::iterator;
 
-    auto &getBlocks() { return bb; }
-    BasicBlock *getFirstBlock() { return *bb.begin(); }
-    BasicBlock *getLastBlock() { return *--bb.end(); }
+    auto &getBlocks() { return bbs; }
+    BasicBlock *getFirstBlock() { return *bbs.begin(); }
+    BasicBlock *getLastBlock() { return *--bbs.end(); }
 
-    iterator begin() { return bb.begin(); }
-    iterator end() { return bb.end(); }
+    iterator begin() { return bbs.begin(); }
+    iterator end() { return bbs.end(); }
 
     Op *getParent() { return parent; }
 
@@ -345,6 +345,5 @@ public:
   AttrImpl(): Attr(AttrID) {}
 };
 
-};
-
+}
 #endif // OPBASE_H
