@@ -533,9 +533,102 @@ void Region::updatePreds() {
 
     for (auto bb : bbs) {
         for (auto pred : bb->preds) {
-            bb->succs.insert(pred);
+            pred->succs.insert(bb);
         }
     }
 }
 
+namespace {
+// DFN is the number of each node in DFS order.
+using DFN = std::unordered_map<BasicBlock*, int>;
+using BBMap = std::unordered_map<BasicBlock*, BasicBlock*>;
 
+using Vertex = std::vector<BasicBlock*>;
+
+using SDom = BBMap;
+using Parent = BBMap;
+using UnionFind = BBMap;
+using Best = BBMap;
+
+int num = 0;
+int pnum = 0;
+
+// Dominators.
+DFN dfn;
+SDom sdom;
+Vertex vertex;
+Parent parents;
+UnionFind uf;
+Best best;
+// Post-dominators. Just a copy-paste.
+DFN pdfn;
+SDom psdom;
+Vertex pvertex;
+Parent pparents;
+UnionFind puf;
+Best pbest;
+
+void updateDFN(BasicBlock *current) {
+    dfn[current] = num++;
+    vertex.push_back(current);
+    for (auto v : current->succs) {
+        if (!dfn.count(v)) {
+            parents[v] = current;
+            updateDFN(v);
+        }
+    }
+}
+
+void updatePDFN(BasicBlock *current) {
+    pdfn[current] = pnum++;
+    pvertex.push_back(current);
+    for (auto v : current->preds) {
+        if (!pdfn.count(v)) {
+        pparents[v] = current;
+        updatePDFN(v);
+        }
+    }
+}
+
+BasicBlock* find(BasicBlock *v) {
+    if (uf[v] != v) {
+        BasicBlock *u = find(uf[v]);
+        if (dfn[sdom[best[v]]] > dfn[sdom[best[uf[v]]]])
+            best[v] = best[uf[v]];
+        uf[v] = u;
+    }
+    return uf[v];
+}
+
+BasicBlock* pfind(BasicBlock *v) {
+    if (puf[v] != v) {
+        BasicBlock *u = pfind(puf[v]);
+        if (pdfn[psdom[pbest[v]]] > pdfn[psdom[pbest[puf[v]]]])
+            pbest[v] = pbest[puf[v]];
+        puf[v] = u;
+    }
+    return puf[v];
+}
+
+void link(BasicBlock *v, BasicBlock *w) {
+    uf[w] = v;
+}
+
+void plink(BasicBlock *v, BasicBlock *w) {
+    puf[w] = v;
+}
+
+}
+
+// Use the Langauer-Tarjan approach.
+// https://www.cs.princeton.edu/courses/archive/fall03/cs528/handouts/a%20fast%20algorithm%20for%20finding.pdf
+// Loop unrolling might update dominators very frequently, and it's quite time consuming.
+void Region::updateDoms() {
+}
+
+void Region::updateDomFront() {
+}
+
+// A dual of updateDoms().
+void Region::updatePDoms() {
+}
