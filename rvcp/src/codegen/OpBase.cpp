@@ -338,6 +338,206 @@ bool Op::inside(Op *op) {
     return false;
 }
 
+std::vector<Op*> BasicBlock::getPhis() const {
+    std::vector<Op*> phis;
+    for (auto op : ops) {
+        if (!isa<PhiOp>(op))
+            break;
+
+        phis.push_back(op);
+    }
+    return phis;
+}
+
+bool BasicBlock::dominatedBy(const BasicBlock *bb) const {
+    for (auto p = this; p; p = p->idom) {
+        if (p == bb)
+            return true;
+    }
+    return false;
+}
+
+// it++ trick to avoid iterator invalidation.
+void BasicBlock::inlineBefore(Op *op) {
+    for (auto it = begin(); it != end(); ) {
+        auto next = it; ++next;
+        (*it)->moveBefore(op);
+        it = next;
+    }
+}
+
+void BasicBlock::inlineToEnd(BasicBlock *bb) {
+    for (auto it = begin(); it != end(); ) {
+        auto next = it; ++next;
+        (*it)->moveToEnd(bb);
+        it = next;
+    }
+}
+
+void BasicBlock::splitOpsAfter(BasicBlock *dest, Op *op) {
+    for (auto it = op->place; it != end(); ) {
+        auto next = it; ++next;
+        (*it)->moveToEnd(dest);
+        it = next;
+    }
+}
+
+void BasicBlock::splitOpsBefore(BasicBlock *dest, Op *op) {
+  for (auto it = begin(); it != op->place; ) {
+    auto next = it; ++next;
+    (*it)->moveToEnd(dest);
+    it = next;
+  }
+}
+
+void BasicBlock::moveBefore(BasicBlock *bb) {
+    parent->remove(place);
+    parent = bb->parent;
+    parent->insert(bb->place, this);
+}
+
+void BasicBlock::moveAfter(BasicBlock *bb) {
+    parent->remove(place);
+    parent = bb->parent;
+    parent->insertAfter(bb->place, this);
+}
+
+void BasicBlock::moveToEnd(Region *region) {
+    parent->remove(place);
+    parent = region;
+    parent->insert(parent->end(), this);
+}
+
+void BasicBlock::erase() {
+    if (preds.size() != 0) {
+        std::cerr << "Erasing block with preds!\nself = bb" << bbmap[this] << "; all preds: ";
+        for (auto pred : preds) {
+            std::cerr << "bb" << bbmap[pred] << " ";
+        }
+        std::cerr << "\n";
+        assert(false);
+    }
+    forceErase();
+}
+
+void BasicBlock::forceErase() {
+    auto copy = ops;
+    for (auto op : copy) 
+        op->removeAllOperands();
+    for (auto op : copy) 
+        op->erase();
+
+    parent->remove(place);
+    delete this;
+}
+
+BasicBlock* Region::insert(BasicBlock* at) {
+    assert(at->parent == this);
+
+    auto it = bbs.insert(at->place, nullptr);
+    *it = new BasicBlock(this, it);
+    return *it;
+}
+
+BasicBlock* Region::insertAfter(BasicBlock* at) {
+    assert(at->parent == this);
+
+    if (at->place == end())
+        return appendBlock();
+
+    auto place = at->place;
+    ++place;
+    auto it = bbs.insert(place, nullptr);
+    *it = new BasicBlock(this, it);
+    return *it;
+}
+
+void Region::remove(BasicBlock* at) {
+    bbs.erase(at->place);
+}
+
+void Region::remove(iterator at) {
+    bbs.erase(at);
+}
+
+void Region::insert(iterator at, BasicBlock *bb) {
+    bb->parent = this;
+    bb->place = bbs.insert(at, bb);
+}
+
+void Region::insertAfter(iterator at, BasicBlock *bb) {
+    bb->parent = this;
+    // insert before std::list::end() iterator
+    if (at == bbs.end()) {
+        bbs.push_back(bb);
+        bb->place = --end();
+        return;
+    }
+    auto place = at;
+    ++place;
+    bb->place = bbs.insert(place, bb);
+}
+
+BasicBlock* Region::appendBlock() {
+    bbs.push_back(nullptr);
+    auto place = --bbs.end();
+    *place = new BasicBlock(this, place);
+    return *place;
+}
+
+std::pair<BasicBlock*, BasicBlock*> Region::moveTo(BasicBlock *bb) {
+    BasicBlock *prev = bb;
+    // Preserve it beforehand; the region will become empty afterwards.
+    auto result = std::make_pair(getFirstBlock(), getLastBlock());
+    for (auto it = begin(); it != end();) {
+        auto next = it; ++next;
+        auto current = *it;
+        current->moveAfter(prev);
+        prev = current;
+        it = next;
+    }
+    return result;
+}
+
+void Region::erase() {
+    auto copy = bbs;
+    for (auto bb : copy)
+        bb->forceErase();
+    parent->removeRegion(this);
+    delete this;
+}
+
+// step1: clear all preds and succs
+// step2: for each block, look at its terminator to find its targets, and
+//         add itself to the target's preds
+// step3: for each block, for each of its preds, add the pred to its succs
+void Region::updatePreds() {
+    for (auto bb : bbs) {
+        bb->preds.clear();
+        bb->succs.clear();
+    }
+    for (auto bb : bbs) {
+        assert(bb->getOpCount() > 0);
+        auto last = bb->getLastOp();
+
+        if (last->has<TargetAttr>()) {
+            auto target = last->get<TargetAttr>();
+            target->bb->preds.insert(bb);
+        }
+
+        if (last->has<ElseAttr>()) {
+            auto ifnot = last->get<ElseAttr>();
+            ifnot->bb->preds.insert(bb);
+        }
+    }
+
+    for (auto bb : bbs) {
+        for (auto pred : bb->preds) {
+            bb->succs.insert(pred);
+        }
+    }
+}
+
 
 
 
