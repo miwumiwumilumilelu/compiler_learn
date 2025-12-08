@@ -784,3 +784,145 @@ void Region::updatePDoms() {
         bb->ipdom = bb->ipdom->ipdom;
     }
 }
+
+// SSA Page 116.
+// https://pfalcon.github.io/ssabook/latest/book-full.pdf
+void Region::updateLiveness() {
+    updatePreds();
+
+    // Clear existing values.
+    for (auto bb : bbs) {
+        bb->liveIn.clear();
+        bb->liveOut.clear();
+    }
+
+    std::map<BasicBlock*, std::set<Op*>> phis;
+    std::map<BasicBlock*, std::set<Op*>> upwardExposed;
+    std::map<BasicBlock*, std::set<Op*>> defined;
+
+    for (auto bb : bbs) {
+        for (auto op : bb->getOps()) {
+        if (isa<PhiOp>(op)) {
+            phis[bb].insert(op);
+            continue;
+        }
+
+        defined[bb].insert(op);
+
+        // A value is upward exposed if it's from some block upwards;
+        // i.e. it's used but not defined in this block.
+        for (auto value : op->getOperands()) {
+            if (!defined[bb].count(value.defining))
+            upwardExposed[bb].insert(value.defining);
+        }
+        }
+    }
+
+    std::deque<BasicBlock*> worklist;
+    
+    // Do a dataflow approach. We start with all exit blocks;
+    // i.e. those that have no successors.
+    std::copy_if(bbs.begin(), bbs.end(), std::back_inserter(worklist), [&](BasicBlock *bb) {
+        return bb->succs.size() == 0;
+    });
+
+    bool changed;
+    do {
+        changed = false;
+        for (auto bb : bbs) {
+        auto liveInOld = bb->liveIn;
+
+        // LiveOut(B) = \bigcup_{S\in succ(B)} (LiveIn(S) - PhiDefs(S)) \cup PhiUses(B)
+        // Here PhiUses(B) means the set of variables used in Phi nodes of S that come from B.
+        std::set<Op*> liveOut;
+        for (auto succ : bb->succs) {
+            std::set_difference(
+            succ->liveIn.begin(), succ->liveIn.end(),
+            phis[succ].begin(), phis[succ].end(),
+            std::inserter(liveOut, liveOut.end())
+            );
+            for (auto phi : phis[succ]) {
+            auto &ops = phi->getOperands();
+            auto &attrs = phi->getAttrs();
+            for (size_t i = 0; i < ops.size(); i++) {
+                if (FROM(attrs[i]) == bb)
+                liveOut.insert(ops[i].defining);
+            }
+            }
+        }
+
+        bb->liveOut = liveOut;
+
+        // LiveIn(B) = PhiDefs(B) \cup UpwardExposed(B) \cup (LiveOut(B) - Defs(B))
+        bb->liveIn.clear();
+        std::set_difference(
+            liveOut.begin(), liveOut.end(),
+            defined[bb].begin(), defined[bb].end(),
+            std::inserter(bb->liveIn, bb->liveIn.end())
+        );
+        for (auto x : upwardExposed[bb])
+            bb->liveIn.insert(x);
+        for (auto x : phis[bb])
+            bb->liveIn.insert(x);
+
+        if (liveInOld != bb->liveIn)
+            changed = true;
+        }
+    } while (changed);
+
+    // showLiveIn();
+}
+
+void Region::showLiveIn() {
+    std::cerr << "===== live info starts =====\n";
+    for (auto bb : bbs) {
+        std::cerr << "=== block ===\n";
+        for (auto x : bb->getOps()) {
+        std::cerr << "  ";
+        x->dump(std::cerr);
+        }
+        std::cerr << "=== livein ===\n";
+        for (auto x : bb->liveIn) {
+        std::cerr << "  ";
+        x->dump(std::cerr);
+        }
+        std::cerr << "=== liveout ===\n";
+        for (auto x : bb->liveOut) {
+        std::cerr << "  ";
+        x->dump(std::cerr);
+        }
+        std::cerr << "\n\n";
+    }
+    std::cerr << "===== live info ends =====\n\n\n";
+}
+
+void Region::dump(std::ostream &os, int depth) {
+    assert(depth >= 1);
+    
+    os << "{\n";
+    for (auto it = bbs.begin(); it != bbs.end(); it++) {
+        if (bbs.size() != 1) {
+        auto bb = *it;
+        indent(os, depth * 2 - 2);
+        os << "bb" << getBlockID(bb) << ":     // preds = [ ";
+        for (auto x : bb->preds)
+            os << getBlockID(x) << " ";
+        
+        os << "]; dom frontier = [ ";
+        for (auto x : bb->getDominanceFrontier())
+            os << getBlockID(x) << " ";
+        
+        os << "]";
+        
+        if (bb->idom)
+            os << "; idom = " << getBlockID(bb->idom);
+        os << "\n";
+        }
+        auto &bb = *it;
+        for (auto &x : bb->getOps())
+        x->dump(os, depth);
+    }
+    indent(os, depth * 2 - 2);
+    os << "}";
+}
+
