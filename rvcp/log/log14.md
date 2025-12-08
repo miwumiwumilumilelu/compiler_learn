@@ -110,14 +110,31 @@ bool changed;
             bb->liveOut = liveOut; // 更新当前块的 LiveOut
 ```
 
+正常后向传播：
+
+$$LiveOut[B] = \bigcup_{S \in successors(B)} LiveIn[S]$$
+
+$$LiveIn[B] = USE[B] \cup (LiveOut[B] - DEF[B])$$
+
+但是这里考虑了SSA形式的CFG图，因此需要更加细节考虑：
+
 $LiveOut(B) = \bigcup_{S \in succ(B)} (LiveIn(S) - PhiDefs(S)) \cup PhiUses(B \to S)$
 
-计算$LiveOut$
+$$LiveIn(B) = (LiveOut(B) - Defs(B)) \cup UpwardExposed(B) \cup PhiDefs(B)$$
 
-Phi 节点就像是一个设立在边上的收费站。
+```c++
+							for (auto phi : phis[succ]) {
+                    auto &ops = phi->getOperands();
+                    auto &attrs = phi->getAttrs();
+                    for (size_t i = 0; i < ops.size(); i++) {
+                        // 检查 Phi 的这个操作数是不是来自当前块 bb
+                        if (FROM(attrs[i]) == bb)
+                            liveOut.insert(ops[i].defining);
+                    }
+                }
+```
 
-1. 进入后继块看到的变量（`PhiDefs`），是在收费站之后才产生的，所以不是从你这里出去的
-2. 交给收费站的过路费（`PhiUses`），必须在你离开当前块时带在身上（活跃）
+此处还要注意使用操作数对应的`FROM(attrs[i])`来判断活跃变量来自哪个前驱基本块
 
 ```c++
 						// === 计算 LiveIn ===
@@ -154,18 +171,54 @@ Phi 节点就像是一个设立在边上的收费站。
 }
 ```
 
-根据当前块的 `LiveOut` 和局部属性
-
-$LiveIn(B) = UpwardExposed(B) \cup (LiveOut(B) - Defined(B)) \cup PhiDefs(B)$
-
-计算$LiveIn$
+根据当前块的 `LiveOut` 和局部属性计算$LiveIn$
 
 
 
 为了验证以上活跃度分析的正确性，实现了一个专门的调试函数`showLiveIn()`
 
-### 
+
 
 最后完善了 IR 的文本化输出功能，使其包含丰富的控制流信息，基于上次实现的`Op::dump`	
 
 实现了支持递归调用 `op->dump`，展示嵌套区域结构的`Region::dump`
+
+
+
+**今天涉及C++库函数：**
+
+* `std::set_difference`——计算两个集合的差集
+
+  如
+
+  $LiveIn = LiveOut - Defs$
+
+  ```c++
+              std::set_difference(
+                  liveOut.begin(), liveOut.end(),
+                  defined[bb].begin(), defined[bb].end(),
+                  std::inserter(bb->liveIn, bb->liveIn.end())
+              );
+  ```
+
+* `std::copy_if`——带条件的复制
+
+  `std::back_inserter`——后插到迭代器
+
+  如
+
+  将出口块（没有后继的块）加入队列
+
+  ```c++
+  std::copy_if(bbs.begin(), bbs.end(), std::back_inserter(worklist), [&](BasicBlock *bb) {
+      return bb->succs.size() == 0;
+  });
+  ```
+
+  但在今天的后续实现中发现其实用不到，因为我进行全量遍历了，后向分析
+
+* `rbegin()` / `rend()`——反向迭代器
+
+  在 Lengauer-Tarjan 算法中，**逆序遍历** DFS 节点（从大到小）
+
+  
