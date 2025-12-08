@@ -6,6 +6,12 @@
 
 来构建支配树及其衍生结构，利用深度优先搜索和路径压缩技术实现了近乎线性的时间复杂度
 
+**引入半支配者概念：**
+
+$sdom(w)$ 是指在 DFS 生成树中，能够通过一条路径到达 $w$，且路径上除了起点和终点外，所有节点的 DFS 序号都大于 $w$ 的那个“序号最小”的祖先节点`best[w]`
+
+通俗点说：**$sdom(bb)$ 是 CFG 图中能绕过 $bb$ 的父节点，直接或者间接“跳”到 $bb$  的最高层节点**
+
 
 
 **OpBase.cpp**
@@ -48,7 +54,7 @@ for (auto bb : bbs) {
 }
 ```
 
-接着，代码按 DFS **逆序遍历**节点进行**后向分析**，来计算半支配者`semi-dominates`，利用 `find` 函数（即论文中的 `EVAL`）和前驱节点信息
+接着，代码按 DFS **逆序遍历**节点进行**后向分析**（**为什么逆序遍历？** 因为计算 `bb` 的半支配者时，可能需要利用 `bb` 的后代节点（通过后向边）的信息。只有先处理完后代，后代的并查集信息（`best`）才是就绪的），利用 `find` 函数（即论文中的 `EVAL`）和前驱节点信息来计算半支配者`semi-dominates`
 
 依据是论文中的 Theorem 4 
 
@@ -62,27 +68,34 @@ $$sdom(w) = \min ( \{ v \mid (v, w) \in E, v < w \} \cup \{ sdom(u) \mid u > w, 
 for (auto it = vertex.rbegin(); it != vertex.rend(); it++) {
     auto bb = *it;
     for (auto v : bb->preds) {
-    // Unreachable. Skip it.
-    if (!dfn.count(v))
-        continue;
-    BasicBlock *u;
-    if (dfn[v] < dfn[bb])
-        u = v;
-    else {
-        find(v);
-        u = best[v];
-    }
-    if (dfn[sdom[u]] < dfn[sdom[bb]])
-        sdom[bb] = sdom[u];
-}
+      // Unreachable. Skip it.
+      if (!dfn.count(v))
+          continue;
+      BasicBlock *u;
+      if (dfn[v] < dfn[bb])
+          u = v;
+      else {
+          find(v);
+          u = best[v];
+      }
+      if (dfn[sdom[u]] < dfn[sdom[bb]])
+          sdom[bb] = sdom[u];
+		}
 ```
 
-计算完 `sdom` 后，将 `bb` 加入到其半支配者的桶 `bsdom` 中，并调用 `link`（即论文中的 LINK 操作 ）将 `bb` 连接到其 DFS 树父节点 `parents[bb]` 下。随后，处理父节点桶中的所有顶点 `v`。依据论文中的 Corollary 1 ，如果 `v` 的半支配者等于其“最佳”节点的半支配者，则直接支配者 `idom` 就是其父节点；否则，`idom` 设置为那个“最佳”节点（留待后续修正）
+计算完 `sdom` 后，将 `bb` 加入到其半支配者的桶 `bsdom` 中，并调用 `link`（即论文中的 LINK 操作 ）将 `bb` 连接到其 DFS 树父节点 `parents[bb]` 下，`uf[bb] = parents[bb]`用于接下来循环中的find(v)去查找中间节点的best
 
 ```c++
 bsdom[sdom[bb]].push_back(bb);
 link(parents[bb], bb);
+```
 
+随后，处理父节点桶中的所有待处理节点 `v`。依据论文中的 Corollary 1 ，如果 `v` 的半支配者等于其“最佳”节点的半支配者，则直接支配者 `idom` 就是其父节点；否则，`idom` 设置为那个“最佳”节点（留待后续修正）
+$$
+idom(w) = \begin{cases} sdom(w) & (sdom(u) = sdom(w)) \\ idom(u) & (sdom(u) < sdom(w)) \end{cases}
+$$
+
+```c++
     for (auto v : bsdom[parents[bb]]) {
       find(v);
       v->idom = sdom[best[v]] == sdom[v] ? parents[bb] : best[v];
@@ -90,7 +103,7 @@ link(parents[bb], bb);
 }
 ```
 
-最后，按 DFS 正序（跳过入口块）遍历所有节点，修正直接支配者。如果节点 `bb` 的直接支配者不等于其半支配者（说明在上一步记录的是中间结果），则将其更新为 `idom[bb]->idom`
+最后，按 DFS 正序（跳过入口块）遍历所有节点，修正直接支配者。如果节点 `bb` 的直接支配者不等于其半支配者（说明在上一步记录的是中间结果），则将其更新为 `idom[bb]->idom`即 `best[bb]->idom`
 
 ```c++
 // Find idom, but ignore the entry block (which has no idom).
