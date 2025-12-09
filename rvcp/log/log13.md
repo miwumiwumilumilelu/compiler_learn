@@ -16,6 +16,8 @@ $sdom(w)$ 是指在 DFS 生成树中，能够通过一条路径到达 $w$，且�
 
 **OpBase.cpp**
 
+![log13_1](./img/log13_1.jpg)
+
 实现的`updateDoms` 函数完整地复现了论文中描述的快速支配者查找算法的四个步骤
 
 首先，调用 `updatePreds()` 确保图的连接关系是最新的。然后清理旧数据（`doms`, `idom`）
