@@ -56,5 +56,6 @@
         "unordered_set": "cpp",
         "variant": "cpp",
         "algorithm": "cpp"
-    }
+    },
+    "Codegeex.RepoIndex": true
 }
