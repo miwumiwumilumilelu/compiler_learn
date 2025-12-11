@@ -58,7 +58,7 @@ public:
     template<class T>
     T *create(Value::Type resultTy) {
         assert(init);
-        auto op = new T();
+        auto op = new T(resultTy);
         bb->insert(at, op);
         return op;
     }
@@ -74,7 +74,7 @@ public:
     template<class T>
     T *create(Value::Type resultTy, const std::vector<Attr*> &v) {
         assert(init);
-        auto op = new T();
+        auto op = new T(resultTy, v);
         bb->insert(at, op);
         return op;
     }
@@ -82,7 +82,7 @@ public:
     template<class T>
     T *create(Value::Type resultTy, const std::vector<Value> &v, const std::vector<Attr*> &a) {
         assert(init);
-        auto op = new T();
+        auto op = new T(resultTy, v, a);
         bb->insert(at, op);
         return op;
     }
@@ -135,7 +135,7 @@ public:
     template<class T>
     T *replace(Op *op, Value::Type resultTy, const std::vector<Attr*> &v) {
         setBeforeOp(op);
-        auto openw = create<T>(resultTy, v);
+        auto opnew = create<T>(resultTy, v);
         op->replaceAllUsesWith(opnew);
         op->erase();
         return opnew;
