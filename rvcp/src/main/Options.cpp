@@ -14,6 +14,7 @@ Options::Options() {
   noLink = false;
   dumpAST = false;
   dumpMidIR = false;
+  dumpCFGIR = false;
   o1 = false;
   arm = false;
   rv = false;
@@ -60,6 +61,7 @@ Options sys::parseArgs(int argc, char **argv) {
 
     PARSEOPT("--dump-ast", dumpAST);
     PARSEOPT("--dump-mid-ir", dumpMidIR);
+    PARSEOPT("--dump-cfg-ir", dumpCFGIR);
     PARSEOPT("--rv", rv);
     PARSEOPT("--arm", arm);
     PARSEOPT("-O1", o1);
