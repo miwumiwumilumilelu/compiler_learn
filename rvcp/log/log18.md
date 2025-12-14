@@ -66,8 +66,10 @@ public:
 详见源码，注册这个pass时，需要注意他放在main.cpp中的位置
 
 测试basic.manbin:
-
-![截屏2025-12-14 17.32.11](/Users/manbin/Library/Application Support/typora-user-images/截屏2025-12-14 17.32.11.png)
+加入pass前：
+![log17_1](./img/log17_1.png)
+加入pass后：
+![log18_1](./img/log18_1.png)
 
 **Phi 节点生成成功**： 在 `bb1`（循环头）中出现了 `%5 = phi %3 %6 %7 <from = bb0> <from = bb2> <from = bb3>`
 
