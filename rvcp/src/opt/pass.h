@@ -6,21 +6,27 @@
 #include <vector>
 #include "../codegen/Ops.h"
 
-namespace sys {
+namespace sys
+{
 
-class Pass {
-protected:
-    ModuleOp *module; // The module to be optimized
-    std::vector<FuncOp *> collectFuncs();
-public:
-    Pass(ModuleOp *module) : module(module) {}
-    virtual ~Pass() {}
+    using DomTree = std::unordered_map<BasicBlock *, std::vector<BasicBlock *>>;
 
-    //
-    virtual std::string name() = 0;
-    virtual std::map<std::string, int> stats() = 0;
-    virtual void run() = 0;
-};
+    class Pass
+    {
+    protected:
+        ModuleOp *module; // The module to be optimized
+        std::vector<FuncOp *> collectFuncs();
+        DomTree getDomTree(Region *region);
+
+    public:
+        Pass(ModuleOp *module) : module(module) {}
+        virtual ~Pass() {}
+
+        //
+        virtual std::string name() = 0;
+        virtual std::map<std::string, int> stats() = 0;
+        virtual void run() = 0;
+    };
 
 }
 
