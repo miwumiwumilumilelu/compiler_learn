@@ -39,10 +39,13 @@ int main(int argc, char **argv) {
   flatten.run();
 
   // Mem2Reg Pass
-  sys::Mem2Reg(module).run();
+  auto M2R = sys::Mem2Reg(module);
+  M2R.run();
+  auto statistics_M2R = M2R.stats();
 
   if (opts.dumpCFGIR) {
     std::cerr << module;
+    std::cerr << "Promoted: " << statistics_M2R["lowered-alloca"] << ", Missed: " << statistics_M2R["missed-alloca"] << "\n";
     return 0;
   }
 
