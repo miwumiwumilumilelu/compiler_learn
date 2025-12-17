@@ -1,5 +1,5 @@
 ---
 triple:          'arm64-apple-darwin'
-binary-path:     compiler
+binary-path:     '/Users/manbin/projects/compiler_learn/rvcp/build/compiler'
 relocations:     []
 ...

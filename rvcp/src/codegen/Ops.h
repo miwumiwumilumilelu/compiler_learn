@@ -127,4 +127,4 @@ OP(WakeOp);
 #undef OP
 #define DEF(i) getOperand(i).defining
 
-#endif
+#endif // OPS_H

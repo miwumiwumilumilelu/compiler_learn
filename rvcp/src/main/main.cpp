@@ -6,6 +6,7 @@
 #include "../codegen/CodeGen.h"
 #include "../opt/LowerPasses.h"
 #include "../opt/passes.h"
+#include "../rv/RvPasses.h"
 
 int main(int argc, char **argv) {
   auto opts = sys::parseArgs(argc, argv);
@@ -49,8 +50,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  // Lowering Pass
+  sys::rv::Lower lowerPass(module);
+  lowerPass.run();
+  std::cout << "Running RISC-V Lowering..." << std::endl;
+  std::cerr << module;
   
-
-  std::cerr << "only --dump-mid-ir is supported in this build.\n";
   return 0;
 }

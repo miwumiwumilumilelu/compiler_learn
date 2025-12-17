@@ -31,7 +31,7 @@ namespace rv {
 // base integer ops
 RVOP(LiOp);
 RVOPL(LaOp);
-RVOPL(AddOP);
+RVOPL(AddOp);
 RVOP(AddwOp);
 RVOP(AddiwOp);
 RVOPL(AddiOp);
@@ -80,7 +80,7 @@ RVOP(SltiOp);
 RVOP(JOp);
 RVOP(MvOp);
 RVOP(RetOp);
-RVOP(LoadOp);
+RVOPE(LoadOp);
 RVOP(StoreOp);
 RVOP(SubSpOp); // sub stack pointer
 RVOPE(ReadRegOp);
@@ -91,7 +91,7 @@ RVOPF(FcvtswOp);
 RVOP(FcvtwsRtzOp);
 RVOPF(FmvwxOp);
 RVOPF(FmvdxOp);
-RVOPL(FmvwxOp);
+RVOPL(FmvxdOp);
 RVOP(FldOp);
 RVOP(FsdOp);
 RVOP(FeqOp);
