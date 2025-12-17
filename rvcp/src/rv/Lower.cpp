@@ -58,6 +58,7 @@ void Lower::run() {
         return false;
     });
 
+    // cond ? x : y -> if (cond) goto bb1; else goto bb2;
     runRewriter([&](SelectOp* op) {
         auto x = op->DEF(0), y = op->DEF(1), z = op->DEF(2);
         auto parent = op->getParent();
@@ -83,13 +84,13 @@ void Lower::run() {
         builder.replace<PhiOp>(op, { y, z }, { new FromAttr(bb1), new FromAttr(bb2) });
 
         for (auto succ : parent->succs) {
-        for (auto phi : succ->getPhis()) {
-            for (auto attr : phi->getAttrs()) {
-            if (FROM(attr) == parent) FROM(attr) = tgt;
+            for (auto phi : succ->getPhis()) {
+                for (auto attr : phi->getAttrs()) {
+                    if (FROM(attr) == parent) FROM(attr) = tgt;
+                }
             }
-        }
-        succ->preds.erase(parent);
-        succ->preds.insert(tgt);
+            succ->preds.erase(parent);
+            succ->preds.insert(tgt);
         }
         tgt->succs = parent->succs;
         parent->succs = { bb1, bb2 };
@@ -136,6 +137,8 @@ void Lower::run() {
         auto cond = op->getOperand().defining;
         if (isa<EqOp>(cond)) { builder.replace<BeqOp>(op, cond->getOperands(), op->getAttrs()); return true; }
         if (isa<NeOp>(cond)) { builder.replace<BneOp>(op, cond->getOperands(), op->getAttrs()); return true; }
+        // Riscv not support ble, so we shift operands here.
+        // Turn ble x y -> bge y x
         if (isa<LeOp>(cond)) { builder.replace<BgeOp>(op, { cond->getOperand(1), cond->getOperand(0) }, op->getAttrs()); return true; }
         if (isa<LtOp>(cond)) { builder.replace<BltOp>(op, cond->getOperands(), op->getAttrs()); return true; }
 
@@ -145,9 +148,11 @@ void Lower::run() {
         return true;
     });
 
+    // Replace after branch.
+    // slt+bne -> blt
     REPLACE(LtOp, SltOp);
 
-    // Para regs
+    // Para regs.
     const static Reg regs[] = {
         Reg::a0, Reg::a1, Reg::a2, Reg::a3, Reg::a4, Reg::a5, Reg::a6, Reg::a7
     };
@@ -155,6 +160,7 @@ void Lower::run() {
         Reg::fa0, Reg::fa1, Reg::fa2, Reg::fa3, Reg::fa4, Reg::fa5, Reg::fa6, Reg::fa7
     };
 
+    // Calling Convention / ABI.
     runRewriter([&](CallOp *op) {
         builder.setBeforeOp(op);
         const auto &args = op->getOperands();
@@ -173,10 +179,16 @@ void Lower::run() {
                 spilled.push_back(arg);
             }
         }
-        // 8 bits
-        int stackOffset = spilled.size() * 8;
-        if (stackOffset % 16 != 0) stackOffset = (stackOffset / 16 + 1) * 16;
 
+        std::vector<Value> Args;
+        Args.insert(Args.end(), argsNew.begin(), argsNew.end());
+        Args.insert(Args.end(), fargsNew.begin(), fargsNew.end());
+        
+        // Every spilled arg takes 8 bytes.
+        int stackOffset = spilled.size() * 8;
+        // Riscv align stack to 16 bytes.
+        if (stackOffset % 16 != 0) stackOffset = (stackOffset / 16 + 1) * 16;
+        // If stackOffset > 0, we need to push stack pointer.
         if (stackOffset) 
             builder.create<SubSpOp>({ new IntAttr(stackOffset) });
         for (int i = 0; i < spilled.size(); i++) {
@@ -184,14 +196,14 @@ void Lower::run() {
             builder.create<StoreOp>({spilled[i], sp }, { new SizeAttr(8), new IntAttr(i * 8) });
         }
 
-        builder.create<sys::rv::CallOp>(argsNew, { op->get<NameAttr>(), new ArgCountAttr(args.size()) });
+        builder.create<sys::rv::CallOp>(Args, { op->get<NameAttr>(), new ArgCountAttr(args.size()) });
+
 
         if (stackOffset > 0) builder.create<SubSpOp>({ new IntAttr(-stackOffset) });
-
         if (op->getResultType() == Value::f32)
-        builder.replace<ReadRegOp>(op, Value::f32, { new RegAttr(Reg::fa0) });
+            builder.replace<ReadRegOp>(op, Value::f32, { new RegAttr(Reg::fa0) });
         else
-        builder.replace<ReadRegOp>(op, Value::i32, { new RegAttr(Reg::a0) });
+            builder.replace<ReadRegOp>(op, Value::i32, { new RegAttr(Reg::a0) });
         return true;
     });
     
