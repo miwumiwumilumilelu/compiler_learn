@@ -161,7 +161,7 @@ void Lower::run() {
     };
 
     // Calling Convention / ABI.
-    runRewriter([&](CallOp *op) {
+    runRewriter([&](sys::CallOp *op) {
         builder.setBeforeOp(op);
         const auto &args = op->getOperands();
         // Spilled : spill args to stack.
@@ -169,7 +169,7 @@ void Lower::run() {
 
         for (size_t i = 0; i < args.size(); i++) {
             Value arg = args[i];
-            if (arg.defining->getResultType() == Value::f32 && fargsNew.size() < 8) {
+            if (arg.defining->getResultType() == Value::f32 || isa<FmvwxOp>(arg.defining) && fargsNew.size() < 8) {
                 fargsNew.push_back(builder.create<WriteRegOp>({ arg }, {new RegAttr(fregs[fargsNew.size()])}));
             }
             else if (arg.defining->getResultType() != Value::f32 && argsNew.size() < 8) {
@@ -196,6 +196,19 @@ void Lower::run() {
             builder.create<StoreOp>({spilled[i], sp }, { new SizeAttr(8), new IntAttr(i * 8) });
         }
 
+        // // --- Debug Start ---
+        // std::cerr << "--- CallOp Rewrite Debug ---" << std::endl;
+        // std::cerr << "Function: " << op->get<NameAttr>()->name << std::endl;
+        // std::cerr << "Total Args: " << args.size() << std::endl;        
+        // std::cerr << "argsNew (Int) size: " << argsNew.size() << " | IDs: ";
+        // for(auto v : argsNew) std::cerr << v.defining << " ";
+        // std::cerr << std::endl;
+
+        // std::cerr << "fargsNew (Float) size: " << fargsNew.size() << " | IDs: ";
+        // for(auto v : fargsNew) std::cerr << v.defining << " ";
+        // std::cerr << std::endl;
+        // // --- Debug End ---
+        
         builder.create<sys::rv::CallOp>(Args, { op->get<NameAttr>(), new ArgCountAttr(args.size()) });
 
 

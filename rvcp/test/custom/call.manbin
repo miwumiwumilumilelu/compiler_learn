@@ -1,26 +1,14 @@
-int int_func(int a) {
-    return a + 5;
-}
-
-float float_func(float b) {
-    return b * 2.0;
-}
-
-int mixed_func(int c, float d) {
-    int e = d;
-    return c + e;
+float add(int a, float b, int c, float d) {
+    return a + b + c + d;
 }
 
 int main() {
-    int x = 10;
-    float y = 3.14;
-    
-    int r1 = int_func(x);
-    float r2 = float_func(y);
-    int r3 = mixed_func(x, y);
-    
-    int result = r1;
-    result = result + r3;
-    
-    return result;
+    int a = 10;
+    float b = 2.5;
+    int c = 20;
+    float d = 4.5;
+
+    float res = add(a, b, c, d);
+
+    return res; 
 }
