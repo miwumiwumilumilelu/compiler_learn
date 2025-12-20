@@ -36,6 +36,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  // ForOpLower Pass
+  sys::ForOpLower forOpLower(module);
+  forOpLower.run();
+
   // MoveAlloca Pass
   sys::MoveAlloca moveAlloca(module);
   moveAlloca.run();
