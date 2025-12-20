@@ -1,7 +1,7 @@
 #ifndef RV_RVPASSES_H
 #define RV_RVPASSES_H
 
-#include "../opt/pass.h"
+#include "../CFG-opt/pass.h"
 #include "RvAttrs.h"
 #include "RvOps.h"
 #include "../codegen/Ops.h"

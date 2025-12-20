@@ -4,8 +4,9 @@
 #include "../parse/Parser.h"
 #include "../parse/Sema.h"
 #include "../codegen/CodeGen.h"
-#include "../opt/LowerPasses.h"
-#include "../opt/passes.h"
+#include "../HIR-opt/HirPasses.h"
+#include "../CFG-opt/LowerPasses.h"
+#include "../CFG-opt/passes.h"
 #include "../rv/RvPasses.h"
 
 int main(int argc, char **argv) {
@@ -34,6 +35,10 @@ int main(int argc, char **argv) {
     std::cerr << module;
     return 0;
   }
+
+  // MoveAlloca Pass
+  sys::MoveAlloca moveAlloca(module);
+  moveAlloca.run();
 
   // FlattenCFG Pass
   sys::FlattenCFG flatten(module);
