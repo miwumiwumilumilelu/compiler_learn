@@ -56,7 +56,7 @@ Op* Op::nextOp() {
 Value::Value(Op *from): defining(from) {}
 
 Op::Op(int id, Value::Type resulty, const std::vector<Value> &values):
-    resultTy(resultTy), opid(id) {
+    resultTy(resulty), opid(id) {
     for (auto x : values) {
         operands.push_back(x);
         x.defining->uses.insert(this);
@@ -203,7 +203,8 @@ void Op::erase() {
     parent->remove(place);
     removeAllOperands();
 
-    for (auto region : regions)
+    auto regionsCopy = regions;
+    for (auto region : regionsCopy)
         region->erase();
     // if used elsewhere, error out.
     if (uses.size()) {

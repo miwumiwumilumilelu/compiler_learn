@@ -135,6 +135,14 @@ public:
     ~WhileNode() { delete cond; delete body; }
 };
 
+class ForNode : public ASTNodeImpl<ForNode, __LINE__> {
+public:
+    ASTNode *init, *cond, *incr, *body;
+    ForNode(ASTNode *init, ASTNode *cond, ASTNode *incr, ASTNode *body):
+        init(init), cond(cond), incr(incr), body(body) {}
+    ~ForNode() { delete init; delete cond; delete incr; delete body; }
+};
+
 class AssignNode : public ASTNodeImpl<AssignNode, __LINE__> {
 public:
     ASTNode *l, *r;

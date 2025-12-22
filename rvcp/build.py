@@ -6,7 +6,7 @@ from pathlib import Path
 
 # ================= 配置区域 =================
 COMPILER = "g++" # 或者 clang++
-CFLAGS = ["-std=c++17", "-g", "-I.", "-Wall"]
+CFLAGS = ["-std=c++17", "-g", "-I.", "-Wall", "-fsanitize=address,undefined"]
 BUILD_DIR = "build"
 TARGET_NAME = "compiler"
 # ===========================================

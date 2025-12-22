@@ -463,6 +463,54 @@ ASTNode *Parser::stmt() {
         return new ContinueNode();
     }
 
+    if (test(Token::For)) {
+        SemanticScope scope(*this);
+        expect(Token::LPar);
+        ASTNode *init = nullptr;
+        if (peek(Token::Int) || peek(Token::Float) || peek(Token::Const)) {
+            init = varDecl(false);
+        } else if (!test(Token::Semicolon)) {
+            auto n = expr();
+            if (test(Token::Assign)) {
+                if (!isa<VarRefNode>(n)) {
+                    std::cerr << "expected lval in for-init\n";
+                    assert(false);
+                }
+                auto value = expr();
+                init = new AssignNode(n, value);
+            } else {
+                init = n;
+            }
+            expect(Token::Semicolon);
+        }
+
+        ASTNode *cond = nullptr;
+        if (!test(Token::Semicolon)) {
+            cond = expr();
+            expect(Token::Semicolon);
+        }
+
+        ASTNode *incr = nullptr;
+        if (!test(Token::RPar)) {
+            auto n = expr();
+            if (test(Token::Assign)) {
+                if (!isa<VarRefNode>(n)) {
+                    std::cerr << "expected lval in for-incr\n";
+                    assert(false);
+                }
+                auto value = expr();
+                incr = new AssignNode(n, value);
+            } else {
+                incr = n;
+            }
+            expect(Token::RPar);
+        }
+
+        auto body = stmt();
+
+        return new ForNode(init, cond, incr, body);
+    }
+
     if (peek(Token::Const, Token::Int, Token::Float))
     return varDecl(false);
 

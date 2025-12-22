@@ -574,6 +574,38 @@ void CodeGen::emit(ASTNode *node) {
         return;
     }
 
+    if (auto loop = dyn_cast<ForNode>(node)) {
+        SemanticScope scope(*this);
+        if (loop->init)
+            emit(loop->init);
+        auto op = builder.create<WhileOp>();
+        auto condRegion = op->createFirstBlock();
+        {
+            Builder::Guard guard(builder);
+            builder.setToBlockStart(condRegion);
+            
+            Value condVal;
+            if (loop->cond) {
+                condVal = emitExpr(loop->cond);
+            } else {
+                condVal = builder.create<IntOp>({ new IntAttr(1) });
+            }
+            builder.create<ProceedOp>({ condVal });
+        }
+
+        auto bodyRegion = op->appendRegion();
+        auto bodyBlock = bodyRegion->appendBlock();
+        {
+            Builder::Guard guard(builder);
+            builder.setToBlockStart(bodyBlock);
+            if (loop->body)
+                emit(loop->body);
+            if (loop->incr)
+                emit(loop->incr);
+        }
+        return;
+    }
+
     if (auto ret = dyn_cast<ReturnNode>(node)) {
         if (!ret->node) {
             builder.create<ReturnOp>();

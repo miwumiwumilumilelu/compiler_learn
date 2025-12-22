@@ -115,7 +115,11 @@ static void handleWhile(Op *x) {
                 op->erase();
             }
 
+            std::vector<Op*> remove;
             for (auto garbage : unusedBB->getOps())
+                remove.push_back(garbage);
+            
+            for (auto garbage : remove)
                 garbage->erase();
         }
     }

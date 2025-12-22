@@ -232,6 +232,36 @@ Type *Sema::infer(ASTNode *node) {
         return node->type = ctx.create<VoidType>();
     }
 
+    if (auto loop = dyn_cast<ForNode>(node)) {
+        SemanticScope scope(*this);
+        
+        if (loop->init)
+            infer(loop->init);
+
+        if (loop->cond) {
+            auto condTy = infer(loop->cond);
+            if (isa<FloatType>(condTy)) {
+                auto zero = new FloatNode(0);
+                zero->type = ctx.create<FloatType>();
+                auto ne = new BinaryNode(BinaryNode::Ne, loop->cond, zero);
+                ne->type = ctx.create<IntType>();
+                loop->cond = ne;
+            }
+            else if (!isa<IntType>(condTy)) {
+                // Loop condition must be int or float.
+                std::cerr << "bad condition in for loop\n";
+                assert(false);
+            }
+        }
+
+        if (loop -> incr)
+            infer(loop->incr);
+
+        infer(loop->body);
+
+        return node->type = ctx.create<VoidType>();
+    }
+
     if (auto assign = dyn_cast<AssignNode>(node)) {
         auto lty = infer(assign->l);
         auto rty = infer(assign->r);
