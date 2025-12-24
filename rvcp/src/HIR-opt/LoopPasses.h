@@ -14,7 +14,7 @@ public:
     RaiseToFor(ModuleOp *module) : Pass(module) {}
 
     std::string name() override { return "raise-to-for"; }
-    std::map<std::string, int> stats() override { return {}; }
+    std::map<std::string, int> stats();
     void run() override;
 };
 

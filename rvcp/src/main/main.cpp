@@ -5,6 +5,8 @@
 #include "../parse/Sema.h"
 #include "../codegen/CodeGen.h"
 #include "../HIR-opt/HirPasses.h"
+#include "../HIR-opt/AnalysisPasses.h"
+#include "../HIR-opt/LoopPasses.h"
 #include "../CFG-opt/LowerPasses.h"
 #include "../CFG-opt/passes.h"
 #include "../rv/RvPasses.h"
@@ -30,6 +32,13 @@ int main(int argc, char **argv) {
   delete node;
 
   sys::ModuleOp *module = cg.getModule();
+
+  sys::RaiseToFor raiseToFor(module);
+  raiseToFor.run();
+  auto stats = raiseToFor.stats();
+  if (stats["raised-for-loops"] > 0) {
+      std::cerr << "Info: Raised " << stats["raised-for-loops"] << " loops to ForOp.\n";
+  }
 
   if (opts.dumpMidIR) {
     std::cerr << module;
