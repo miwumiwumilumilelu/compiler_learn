@@ -35,7 +35,7 @@ void ForOpLower::run() {
         // Also do it at the end.
         auto last = region->getLastBlock();
         builder.setToBlockEnd(last);
-        auto add = builder.create<AddIOp>({ iv, incr }); //  创建一个加法操作，将初始值(iv)和增量(incr)相加
+        auto add = builder.create<AddIOp>({ iv, incr });
         builder.create<StoreOp>({ add, ivAddr }, { new SizeAttr(4) });
 
         // Create a while loop.

@@ -71,8 +71,11 @@ int main(int argc, char **argv) {
   // Lowering Pass
   sys::rv::Lower lowerPass(module);
   lowerPass.run();
-  std::cout << "Running RISC-V Lowering..." << std::endl;
-  std::cerr << module;
+  // std::cout << "Running RISC-V Lowering..." << std::endl;
+  // std::cerr << module;
+
+  sys::rv::Dump dumpPass(module, opts.outputFile);
+  dumpPass.run();
   
   return 0;
 }

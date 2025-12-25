@@ -44,6 +44,19 @@ public:
     void run() override;
 };
 
+// Dumps the output.
+class Dump : public Pass {
+    std::string out;
+
+    void dump(std::ostream &os);
+public:
+    Dump(ModuleOp *module, const std::string &out): Pass(module), out(out) {}
+
+    std::string name() override { return "rv-dump"; };
+    std::map<std::string, int> stats() override { return {}; }
+    void run() override;
+};
+
 }
 }
 

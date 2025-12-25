@@ -78,6 +78,11 @@ public:
 };
 
 }
+
+#define RD(op) (op)->get<RdAttr>()->reg
+#define RS(op) (op)->get<RsAttr>()->reg
+#define RS2(op) (op)->get<Rs2Attr>()->reg
+
 }
 
 #endif // RVATTRS_H
