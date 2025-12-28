@@ -74,8 +74,10 @@ int main(int argc, char **argv) {
   // std::cout << "Running RISC-V Lowering..." << std::endl;
   // std::cerr << module;
 
-  sys::rv::Dump dumpPass(module, opts.outputFile);
-  dumpPass.run();
+  // sys::rv::Dump dumpPass(module, opts.outputFile);
+  // dumpPass.run();
+  sys::rv::RegAlloc regAlloc(module);
+  regAlloc.run();
   
   return 0;
 }

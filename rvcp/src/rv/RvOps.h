@@ -86,6 +86,7 @@ RVOP(SubSpOp); // sub stack pointer
 RVOPE(ReadRegOp);
 RVOP(WriteRegOp);
 RVOP(CallOp);
+RVOP(PlaceHolderOp); // See regalloc; holds a place to denote a register isn't available.
 // float ops
 RVOPF(FcvtswOp);
 RVOP(FcvtwsRtzOp);
