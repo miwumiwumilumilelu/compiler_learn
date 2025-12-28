@@ -59,13 +59,34 @@ std::map<std::string, int> RegAlloc::stats() {
     };
 }
 
-// Print the current instruction and the register to which it has been allocated.
-// void debugDumpAssignment(Op *op, Reg reg) {
-//     std::cerr << "Assign: " << op->getName() << " -> " << showReg(reg) << "\n";
-// }
+// Used in LiveOut.
+struct Event {
+    int timestamp;
+    bool start;
+    Op *op;
+};
 
 // Implemented in OpBase.cpp.
 std::string getValueNumber(Value value);
+
+void dumpInterf(Region *region, const std::unordered_map<Op*, std::set<Op*>> &interf) {
+    region->dump(std::cerr, /*depth=*/1);
+    std::cerr << "\n\n===== interference graph =====\n\n";
+    for (auto [k, v] : interf) {
+        std::cerr << getValueNumber(k->getResult()) << ": ";
+        for (auto op : v)
+            std::cerr << getValueNumber(op->getResult()) << " ";
+        std::cerr << "\n";
+  }
+}
+
+void dumpAssignment(Region *region, const std::unordered_map<Op*, Reg> &assignment) {
+    region->dump(std::cerr, /*depth=*/1);
+    std::cerr << "\n\n===== assignment =====\n\n";
+    for (auto [k, v] : assignment) {
+        std::cerr << getValueNumber(k->getResult()) << " = " << showReg(v) << "\n";
+    }
+}
 
 void RegAlloc::runImpl(Region *region, bool isLeaf) {
     // Select the allocation order table based on function type.
@@ -162,9 +183,101 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         // TODO: spill
     }
 
-    std::cerr << "--- After Pre-coloring (Step 1) ---\n";
-    region->dump(std::cerr, 1);
-    
+    // std::cerr << "--- After Pre-coloring (Step 1) ---\n";
+    // region->dump(std::cerr, 1);
+
+    region->updateLiveness();
+
+    std::unordered_map<Op*, std::set<Op*>> interf, spillInterf;
+    std::unordered_map<Op*, int> priority;
+    std::unordered_map<Op*, Op*> prefer;
+    std::unordered_map<Op*, std::vector<Op*>> phiOperand;
+
+    int currentPriority = 2;
+
+    for (auto bb : region->getBlocks()) {
+        // Use-Def chain
+        // Reverse analysis.
+        std::unordered_map<Op*, int> lastUsed, defined;
+        const auto &ops = bb->getOps();
+        auto it = ops.end();
+
+        for (int i = (int) ops.size() - 1; i >= 0; i--) {
+            auto op = *--it;
+
+            for( auto v : op->getOperands()) {
+                if (!lastUsed.count(v.defining))
+                    lastUsed[v.defining] = i;
+            }
+            defined[op] = i;
+
+            if (!lastUsed.count(op))
+                lastUsed[op] = i + 1;
+
+            if (isa<WriteRegOp>(op)) {
+                assignment[op] = REG(op);
+                priority[op] = 1; 
+            }
+            if(isa<ReadRegOp>(op))
+                priority[op] = 1;
+
+            // The immediate value range for RISC-V I-Type instructions is [-2048, 2047].
+            if (isa<LiOp>(op) && (V(op) <= 2047 && V(op) >= -2048))
+                priority[op] = -2;
+
+            if (isa<PhiOp>(op)) {
+                priority[op] = currentPriority + 1;
+                for (auto x : op->getOperands()) {
+                    priority[x.defining] = currentPriority;
+                    prefer[x.defining] = op;
+                    phiOperand[op].push_back(x.defining);
+                }
+                currentPriority += 2;
+            }
+        }
+
+        for (auto op : bb->getLiveOut()) {
+            lastUsed[op] = ops.size();
+
+        std::vector<Event> events;
+        for (auto [op, v] : lastUsed) {
+            if (defined[op] == v) continue;
+
+            events.push_back(Event { defined[op], true, op });
+            events.push_back(Event { v, false, op });
+        }
+
+        std::sort(events.begin(), events.end(), [](Event a, Event b) {
+            return a.timestamp == b.timestamp ? (!a.start && b.start) : a.timestamp < b.timestamp;
+        });
+
+        std::unordered_set<Op*> active;
+        for (const auto& event : events) {
+            auto op = event.op;
+            if (isa<JOp>(op)) continue;
+
+            if (event.start) {
+                // Conflict
+                for (Op* activeOp : active) {
+                    if (fpreg(activeOp->getResultType()) ^ fpreg(op->getResultType())) {
+                        // Stack Slot conflict.
+                        spillInterf[activeOp].insert(op);
+                        spillInterf[op].insert(activeOp);
+                        continue;
+                    }
+                    interf[activeOp].insert(op);
+                    interf[op].insert(activeOp);
+                }
+                active.insert(op);
+            } else {
+                active.erase(op);
+            }
+        }
+    }
+
+        std::cerr << "--- Interference Graph (Step 2) ---\n";
+        dumpInterf(region, interf);
+    }  
 }
 
 void RegAlloc::run() {
