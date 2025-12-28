@@ -205,6 +205,13 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         for (int i = (int) ops.size() - 1; i >= 0; i--) {
             auto op = *--it;
 
+            // if (op->getName() == "rv.call") {
+            //     std::cerr << "Found CallOp at index " << i << ", operands count: " << op->getOperands().size() << "\n";
+            //     for(auto v : op->getOperands()) {
+            //         std::cerr << "  Uses: " << getValueNumber(v) << "\n";
+            //     }
+            // }           
+
             for( auto v : op->getOperands()) {
                 if (!lastUsed.count(v.defining))
                     lastUsed[v.defining] = i;
@@ -236,7 +243,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
             }
         }
 
-        for (auto op : bb->getLiveOut()) {
+        for (auto op : bb->getLiveOut())
             lastUsed[op] = ops.size();
 
         std::vector<Event> events;
@@ -277,7 +284,6 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
 
         std::cerr << "--- Interference Graph (Step 2) ---\n";
         dumpInterf(region, interf);
-    }  
 }
 
 void RegAlloc::run() {
