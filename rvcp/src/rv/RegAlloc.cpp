@@ -60,6 +60,29 @@ std::map<std::string, int> RegAlloc::stats() {
     };
 }
 
+#define GET_SPILLED_ARGS(op) \
+    (fpreg(op->getResultType()), spillOffset[op], op)
+
+#define ADD_ATTR(Index, AttrTy) \
+    auto v##Index = op->getOperand(Index).defining; \
+    if (!spillOffset.count(v##Index)) \
+        op->add<AttrTy>(getReg(v##Index)); \
+    else \
+        op->add<Spilled##AttrTy> GET_SPILLED_ARGS(v##Index);
+
+#define BINARY ADD_ATTR(0, RsAttr); ADD_ATTR(1, Rs2Attr);
+#define UNARY ADD_ATTR(0, RsAttr);
+
+#define LOWER(Ty, Body) \
+    runRewriter(funcOp, [&](Ty *op) \
+    { \
+        if (op->getOperands().size() == 0) \
+            return false; \
+        Body \
+        op->removeAllOperands(); \
+        return true; \
+    });
+
 // Used in LiveOut.
 struct Event {
     int timestamp;
@@ -330,6 +353,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
             }
         }
 
+        // Phi operands
         if (prefer.count(op)) {
             auto ref = prefer[op];
             if (assignment.count(ref) && !bad.count(assignment[ref])) {
@@ -408,6 +432,119 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         highest = std::max(highest, desired);
     }
 
+    if (highest == currentOffset) {
+        // Only one overflow, just borrow s10/fs10.
+        for (auto [op, _] : spillOffset) 
+            assignment[op] = fpreg(op->getResultType()) ? fspillReg : spillReg;
+        spillOffset.clear();
+    }
+
+    if (highest == currentOffset + 8) {
+        // Only two overflow, just borrow s10/fs10 and s11/fs11.
+        for (auto [op, offset] : spillOffset) {
+            auto fp = fpreg(op->getResultType());
+            assignment[op] = (offset > currentOffset) ? (fp ? fspillReg2 : spillReg2) : (fp ? fspillReg : spillReg);
+        }
+        spillOffset.clear();
+    }
+
+    // FP Reuse for Spilling.
+    if (spillOffset.size()) {
+        std::unordered_set<Reg> used;
+        for (auto [op, x] : assignment) {
+            if (isa<PlaceHolderOp>(op)) continue;
+            used.insert(x);
+        }
+
+        std::unordered_map<int, Reg> fpmv;
+        auto off = STACKOFF(funcOp);
+        for (auto reg : leafOrderf) {
+            if (highest <= off)
+                break; 
+            if (used.count(reg) || (!isLeaf && calleeSaved.count(reg))) 
+                continue;
+
+            fpmv[highest] = reg;
+            highest -= 8;
+        }
+
+        // Map the offset to a negative value.
+        // And use this to make subsequent judgments; change it to fmv.
+        for (auto &[_, offset] : spillOffset) {
+            if (fpmv.count(offset))
+                offset = -int(fpmv[offset]);
+        }
+    }
+
+    if (spillOffset.size()) 
+        STACKOFF(funcOp) = highest + 8;
+    
+    // Returns default registers to prevent crashes.
+    const auto getReg = 
+    [&](Op* op) {
+        return assignment.count(op) ? assignment[op] :
+            fpreg(op->getResultType()) ? orderf[0] : order[0];
+    };
+
+    LOWER(AddOp, BINARY);
+    LOWER(AddwOp, BINARY);
+    LOWER(SubOp, BINARY);
+    LOWER(SubwOp, BINARY);
+    LOWER(MulOp, BINARY);
+    LOWER(MulwOp, BINARY);
+    LOWER(MulhOp, BINARY);
+    LOWER(MulhuOp, BINARY);
+    LOWER(DivwOp, BINARY);
+    LOWER(DivOp, BINARY);
+    LOWER(RemOp, BINARY);
+    LOWER(RemwOp, BINARY);
+
+    LOWER(BneOp, BINARY);
+    LOWER(BeqOp, BINARY);
+    LOWER(BltOp, BINARY);
+    LOWER(BgeOp, BINARY);
+
+    LOWER(AndOp, BINARY);
+    LOWER(OrOp, BINARY);
+    LOWER(XorOp, BINARY);
+
+    LOWER(SltOp, BINARY);
+    LOWER(SllwOp, BINARY);
+    LOWER(SrlwOp, BINARY);
+    LOWER(SrawOp, BINARY);
+    LOWER(SllOp, BINARY);
+    LOWER(SrlOp, BINARY);
+    LOWER(SraOp, BINARY);
+
+    LOWER(FaddOp, BINARY);
+    LOWER(FsubOp, BINARY);
+    LOWER(FmulOp, BINARY);
+    LOWER(FdivOp, BINARY);
+    LOWER(FeqOp, BINARY);
+    LOWER(FltOp, BINARY);
+    LOWER(FleOp, BINARY);
+
+    LOWER(StoreOp, BINARY);
+
+    LOWER(LoadOp, UNARY);
+    LOWER(AddiwOp, UNARY);
+    LOWER(AddiOp, UNARY);
+    LOWER(SlliwOp, UNARY);
+    LOWER(SrliwOp, UNARY);
+    LOWER(SraiwOp, UNARY);
+    LOWER(SraiOp, UNARY);
+    LOWER(SlliOp, UNARY);
+    LOWER(SrliOp, UNARY);
+    LOWER(SeqzOp, UNARY);
+    LOWER(SnezOp, UNARY);
+    LOWER(SltiOp, UNARY);
+    LOWER(AndiOp, UNARY);
+    LOWER(OriOp, UNARY);
+    LOWER(XoriOp, UNARY);
+
+    LOWER(FcvtswOp, UNARY);
+    LOWER(FcvtwsRtzOp, UNARY);
+    LOWER(FmvwxOp, UNARY);
 }
 
 void RegAlloc::run() {
