@@ -83,6 +83,7 @@ public:
 #define RS(op) (op)->get<RsAttr>()->reg
 #define RS2(op) (op)->get<Rs2Attr>()->reg
 #define REG(op) (op)->get<RegAttr>()->reg
+#define STACKOFF(op) (op)->get<StackOffsetAttr>()->offset
 
 }
 

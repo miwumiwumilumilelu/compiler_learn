@@ -1,3 +1,4 @@
+/// Priority-based Greedy Graph Coloring
 #include "RvPasses.h"
 #include "Regs.h"
 #include <unordered_set>
@@ -282,8 +283,131 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         }
     }
 
-        std::cerr << "--- Interference Graph (Step 2) ---\n";
-        dumpInterf(region, interf);
+    // std::cerr << "--- Interference Graph (Step 2) ---\n";
+    // dumpInterf(region, interf);
+
+    std::vector<Op*> ops;
+    for (auto [k, v] : interf) {
+        ops.push_back(k);
+    }
+    for (auto [k, v] : priority) {
+        ops.push_back(k);
+    }
+
+    // 1. Allocation is done first for higher priority (pa > pb).
+    // 2. If the priorities are the same, then the allocation is done for the node with larger degree (interf.size() > interf.size()).
+    // The more difficult the variable to assign, the earlier it should be processed; the remaining easy variables can be filled in later.
+    std::sort(ops.begin(), ops.end(), [&](Op* a, Op* b) {
+        auto pa = priority[a];
+        auto pb = priority[b];
+        return pa == pb ? interf[a].size() > interf[b].size() : pa > pb;
+    });
+
+    std::unordered_map<Op*, int> spillOffset;
+    int currentOffset = STACKOFF(funcOp);
+    int highest = 0;
+
+    for (auto op : ops) {
+        if(assignment.count(op))
+            continue;
+
+        std::unordered_set<Reg> bad, unpreferred;
+
+        // sp (stack pointer) and zero are always considered non-conflicting/read-only and are not counted as being occupied.
+        for (auto v : interf[op]) {
+            if (assignment.count(v) && assignment[v] != Reg::sp && assignment[v] != Reg::zero)
+                bad.insert(assignment[v]);
+        }
+
+        // Phi avoid registers of conflicting objects for all their operands.
+        if (isa<PhiOp>(op)) {
+            const auto &operands = phiOperand[op];
+            for (auto x : operands) {
+                for (auto v : interf[x]) {
+                    if (assignment.count(v) && assignment[v] != Reg::sp && assignment[v] != Reg::zero)
+                        unpreferred.insert(assignment[v]);
+                }
+            }
+        }
+
+        if (prefer.count(op)) {
+            auto ref = prefer[op];
+            if (assignment.count(ref) && !bad.count(assignment[ref])) {
+                assignment[op] = assignment[ref];
+                continue;
+            }
+        }
+        
+        // If one of the Uses of Op is WriteRegOp (precolored write), try to align.
+        int preferred = -1;
+        for (auto use : op->getUses()) {
+            if (isa<WriteRegOp>(use)) {
+                auto reg = REG(use);
+                if (!bad.count(reg)) {
+                    preferred = (int) reg;
+                    break;
+                }
+            }
+        }
+        if (isa<ReadRegOp>(op)) {
+            auto reg = REG(op);
+            if (!bad.count(reg)) {
+                preferred = (int) reg;
+            }
+        }
+        if (preferred != -1) {
+            assignment[op] = (Reg) preferred;
+            continue;
+        }
+
+        // Try to allocate a register.
+        auto rcnt = !fpreg(op->getResultType()) ? regcount : regcountf;
+        auto rorder = !fpreg(op->getResultType()) ? order : orderf;
+
+        for (int i = 0; i < rcnt; i++) {
+            if (!bad.count(rorder[i]) && !unpreferred.count(rorder[i])) {
+                assignment[op] = rorder[i];
+                break;
+            }
+        }
+
+        if (!assignment.count(op) && unpreferred.size()) {
+            for (int i = 0; i < rcnt; i++) {
+                if (!bad.count(rorder[i])) {
+                    assignment[op] = rorder[i];
+                    break;
+                }
+            }
+        }
+
+        if (assignment.count(op)) {
+            continue;
+        }
+
+        // Spill.
+        spilled++;
+
+        int desired = currentOffset;
+        std::unordered_set<int> conflict;
+
+        for (auto v : interf[op]) {
+            if (!spillOffset.count(v)) continue;
+            conflict.insert(spillOffset[v]);
+        }
+
+        for (auto v : spillInterf[op]) {
+            if (!spillOffset.count(v)) continue;
+            conflict.insert(spillOffset[v]);
+        }
+
+        while (conflict.count(desired)) 
+            desired += 8;
+
+        spillOffset[op] = desired;
+        
+        highest = std::max(highest, desired);
+    }
+
 }
 
 void RegAlloc::run() {
