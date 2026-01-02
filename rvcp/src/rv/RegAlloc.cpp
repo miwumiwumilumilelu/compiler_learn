@@ -782,17 +782,211 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         phi->removeAllOperands();
     }
     for (auto phi : allPhis) {
+        // Debugging aid: if there are still uses, dump the module.
+        if (phi->getUses().size())
+          module->dump();
         phi->erase();
     }
 
+    for (auto bb : region->getBlocks()) {
+        for (auto op : bb->getOps()) {
+            if (hasRd(op) && !op->has<RdAttr>() && !op->has<SpilledRdAttr>()) {
+                if (!spillOffset.count(op))
+                    op->add<RdAttr>(getReg(op));
+                else
+                    op->add<SpilledRdAttr> GET_SPILLED_ARGS(op);
+            }
+        }
+    }
+    
+    // Deal with spill variables.
+    std::vector<Op*> remove;
+    for (auto bb : region->getBlocks()) {
+        int delta = 0;
+        // Track Stack Pointer
+        for (auto op : bb->getOps()) {
+            if (isa<SubSpOp>(op)) {
+                delta += V(op);
+                continue;
+            }
+            // Spilled Write -> Store.
+            if (auto rd = op->find<SpilledRdAttr>()) {
+                if(isa<LiOp>(rd->ref) || isa<LaOp>(rd->ref)) {
+                    remove.push_back(op);
+                    continue;
+                }
+
+                int offset = delta + rd->offset;
+                bool fp = rd->fp;
+
+                auto reg = fp ? fspillReg : spillReg;
+                
+                builder.setAfterOp(op);
+
+                if (offset < delta)
+                    builder.create<FmvdxOp>({ RDC(Reg(delta - offset)), RSC(reg) });
+                else if (offset < 2048) // [-2048, 2047]
+                    // store reg, offset(sp)
+                    builder.create<StoreOp>({ 
+                        RSC(reg),
+                        RS2C(Reg::sp),
+                        new IntAttr(offset),
+                        new SizeAttr(8)
+                    });
+                else if (offset < 4096) {
+                    // addi spillReg2, sp, 2047
+                    builder.create<AddiOp>({
+                        RDC(spillReg2),
+                        RSC(Reg::sp),
+                        new IntAttr(2047),
+                        new SizeAttr(8)
+                    });
+                    // store reg, (offset - 2047)(spillReg2)
+                    builder.create<StoreOp>({
+                        RSC(reg),
+                        RSC(spillReg2),
+                        new IntAttr(offset - 2047),
+                        new SizeAttr(8)
+                    });
+                }
+                else assert(false);
+
+                op->add<RdAttr>(reg);
+            }
+
+            // Spilled Read -> Load.
+            if (auto rs = op->find<SpilledRsAttr>()) {
+                int offset = delta + rs->offset;
+                bool fp = rs->fp;
+                auto reg = fp ? fspillReg : spillReg;
+                // lw/ld/flw/fld
+                auto ldty = fp? Value::f32 : Value::i64;
+
+                builder.setBeforeOp(op);
+
+                auto ref = rs->ref;
+                if (isa<LiOp>(ref))
+                    builder.create<LiOp>({ RDC(reg), new IntAttr(V(ref)) });
+                else if (isa<LaOp>(ref))
+                    builder.create<LaOp>({ RDC(reg), new NameAttr(NAME(ref)) });
+                else if (offset < delta)
+                    // fmvxd reg, spillReg
+                    builder.create<FmvxdOp>({ RDC(reg), RSC(Reg(delta - offset)) });
+                else if (offset < 2048) // [-2048, 2047]
+                    // load reg, offset(sp)
+                    builder.create<LoadOp>(ldty, {
+                        RDC(reg),
+                        RSC(Reg::sp),
+                        new IntAttr(offset),
+                        new SizeAttr(8)
+                    });
+                else if (offset < 4096) {
+                    // addi spillReg, sp, 2047
+                    builder.create<AddiOp>({
+                        RDC(spillReg),
+                        RSC(Reg::sp),
+                        new IntAttr(2047),
+                        new SizeAttr(8)
+                    });
+                    // load reg, (offset - 2047)(spillReg)
+                    builder.create<LoadOp>(ldty, {
+                        RDC(reg),
+                        RSC(spillReg),
+                        new IntAttr(offset - 2047),
+                        new SizeAttr(8)
+                    });
+                }
+                else assert(false);
+
+                op->add<RsAttr>(reg);
+            }
+            
+            if (auto rs2 = op->find<SpilledRs2Attr>()) {
+                int offset = delta + rs2->offset;
+                bool fp = rs2->fp;
+                auto reg = fp ? fspillReg2 : spillReg2;
+                // lw/ld/flw/fld
+                auto ldty = fp? Value::f32 : Value::i64;
+
+                builder.setBeforeOp(op);
+
+                auto ref = rs2->ref;
+                if (isa<LiOp>(ref))
+                    builder.create<LiOp>({ RDC(reg), new IntAttr(V(ref)) });
+                else if (isa<LaOp>(ref))
+                    builder.create<LaOp>({ RDC(reg), new NameAttr(NAME(ref)) });
+                else if (offset < delta)
+                    // fmvxd reg, spillReg
+                    builder.create<FmvxdOp>({ RDC(reg), RSC(Reg(delta - offset)) });
+                else if (offset < 2048) // [-2048, 2047]
+                    // load reg, offset(sp)
+                    builder.create<LoadOp>(ldty, {
+                        RDC(reg),
+                        RSC(Reg::sp),
+                        new IntAttr(offset),
+                        new SizeAttr(8)
+                    });
+                else if (offset < 4096) {
+                    // addi spillReg, sp, 2047
+                    builder.create<AddiOp>({
+                        RDC(spillReg2),
+                        RSC(Reg::sp),
+                        new IntAttr(2047),
+                        new SizeAttr(8)
+                    });
+                    // load reg, (offset - 2047)(spillReg)
+                    builder.create<LoadOp>(ldty, {
+                        RDC(reg),
+                        RSC(spillReg2),
+                        new IntAttr(offset - 2047),
+                        new SizeAttr(8)
+                    });
+                }
+                else assert(false);
+
+                op->add<Rs2Attr>(reg);
+            }
+        }
+    }
+
+    for (auto op : remove)
+        op->erase();
+
 }
+
+
 
 void RegAlloc::run() {
     auto funcs = collectFuncs();
+    std::set<FuncOp*> leaves;
     for (auto func : funcs) {
-        bool isLeaf = (func->findAll<sys::rv::CallOp>().size() == 0);
-        runImpl(func->getRegion(), isLeaf);
+        auto calls = func->findAll<sys::rv::CallOp>();
+        if (calls.size() == 0) {
+            leaves.insert(func);
+        }
+        runImpl(func->getRegion(), calls.size() == 0);
     }
+
+    for (auto func : funcs) {
+        // For proEpilogue.
+        auto &set = usedRegisters[func];
+        for (auto bb : func->getRegion()->getBlocks()) {
+            for (auto op : bb->getOps()) {
+                if (op->has<RdAttr>()) 
+                    set.insert(op->get<RdAttr>()->reg);
+                if (op->has<RsAttr>()) 
+                    set.insert(op->get<RsAttr>()->reg);
+                if (op->has<Rs2Attr>()) 
+                    set.insert(op->get<Rs2Attr>()->reg);
+            }
+        }
+    }
+
+    for (auto func : funcs) {
+        proEpilogue(func, leaves.count(func));
+        tidyup(func->getRegion());
+    }
+
 }
 
 

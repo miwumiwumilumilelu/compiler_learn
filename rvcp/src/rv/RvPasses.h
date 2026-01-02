@@ -29,6 +29,7 @@ class RegAlloc : public Pass {
     void runImpl(Region *region, bool isLeaf);
     // Create both Prologue and Epilogue of a function.
     void proEpilogue(FuncOp *fn, bool isLeaf);
+    void tidyup(Region *region);
 public:
     RegAlloc(ModuleOp *module) : Pass(module) {}
     std::string name() override { return "rv-regalloc"; }
