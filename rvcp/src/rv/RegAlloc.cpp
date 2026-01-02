@@ -83,6 +83,12 @@ std::map<std::string, int> RegAlloc::stats() {
         return true; \
     });
 
+#define CREATE_MV(fp, rd, rs) \
+    if (!fp) \
+        builder.create<MvOp>({ RDC(rd), RSC(rs) }); \
+    else \
+        builder.create<FmvOp>({ RDC(rd), RSC(rs) });
+
 // Used in LiveOut.
 struct Event {
     int timestamp;
@@ -545,6 +551,240 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
     LOWER(FcvtswOp, UNARY);
     LOWER(FcvtwsRtzOp, UNARY);
     LOWER(FmvwxOp, UNARY);
+
+
+    // Cleanup Operands.
+    // The operands of CallOp, RetOp, and PlaceHolderOp are only used to establish conflict relationships during allocation.
+    // After allocation, these operands are no longer needed.
+    for (auto bb : region->getBlocks()) {
+        for (auto op : bb->getOps()) {
+            if (isa<PlaceHolderOp>(op) || isa<CallOp>(op) || isa<RetOp>(op)) 
+                op->removeAllOperands();
+        }
+    }
+
+    // Remove placeholders.
+    auto holders = funcOp->findAll<PlaceHolderOp>();
+    for (auto holder : holders) 
+        holder->erase();
+
+    runRewriter(funcOp, [&](WriteRegOp *op) {
+        builder.setBeforeOp(op);
+        CREATE_MV(isFP(REG(op)), REG(op), getReg(op->DEF(0)));
+        auto mv = op->prevOp();
+
+        if (spillOffset.count(op->DEF(0))) {
+            mv->remove<RsAttr>();
+            mv->add<SpilledRsAttr> GET_SPILLED_ARGS(op->DEF(0));    
+        }
+
+        op->erase();
+        return false;
+    });
+
+    runRewriter(funcOp, [&](ReadRegOp *op) {
+        builder.setBeforeOp(op);
+        CREATE_MV(isFP(REG(op)), getReg(op), REG(op));
+        auto mv = op->prevOp();
+
+        assignment[mv] = getReg(op);
+        if (spillOffset.count(op)) {
+            mv->remove<RdAttr>();
+            mv->add<SpilledRdAttr> GET_SPILLED_ARGS(op);    
+            spillOffset[mv] = spillOffset[op];
+        }
+
+        op->replaceAllUsesWith(mv);
+        op->erase();
+        return false;
+    });
+
+    std::vector<Op*> allPhis;
+    auto bbs = region->getBlocks();
+    // Split Critical Edges by inserting new Basic Blocks.
+    for (auto bb : bbs) {
+        if (bb->succs.size() <= 1) continue;
+        
+        auto edge1 = region->insertAfter(bb);
+        auto edge2 = region->insertAfter(bb);
+        auto bbTerm = bb->getLastOp();
+
+        auto target = bbTerm->get<TargetAttr>();
+        auto oldTarget = target->bb;
+        target->bb = edge1;
+        builder.setToBlockEnd(edge1);
+        builder.create<JOp>({ new TargetAttr(oldTarget) });
+
+        auto ifnot = bbTerm->get<ElseAttr>();
+        auto oldElse = ifnot->bb;
+        ifnot->bb = edge2;
+        builder.setToBlockEnd(edge2);
+        builder.create<JOp>({ new TargetAttr(oldElse) });
+
+        for (auto succ : bb->succs) {
+            for (auto phis : succ->getPhis()) {
+                for (auto attr : phis->getAttrs()) {
+                    auto from = cast<FromAttr>(attr);
+                    if (from->bb != bb) continue;
+                    if (succ == oldTarget) {
+                        from->bb = edge1;
+                    } 
+                    if (succ == oldElse) {
+                        from->bb = edge2;
+                    }
+                }
+            }
+        }
+    }
+
+#define SOFFSET(op, Ty) ((Reg)(-(op)->get<Spilled##Ty##Attr>()->offset - 1000))
+#define SPILLABLE(op, Ty) (op->has<Ty##Attr>() ? op->get<Ty##Attr>()->reg : SOFFSET(op, Ty))
+
+    std::unordered_map<BasicBlock*, std::vector<std::pair<Reg, Reg>>> moveMap;
+    std::unordered_map<BasicBlock*, std::map<std::pair<Reg, Reg>, Op*>> revMap;
+
+    for (auto bb : bbs) {
+        auto phis = bb->getPhis();
+        std::vector<Op*> moves;
+
+        for (auto phi : phis) {
+            auto &ops = phi->getOperands();
+            auto &attrs = phi->getAttrs();
+
+            for (size_t i = 0; i < ops.size(); i++) {
+                auto fromBB = FROM(attrs[i]);
+                auto term = fromBB->getLastOp();
+                builder.setBeforeOp(term);
+                auto def = ops[i].defining;
+
+                Op *mv;
+                bool isFp = fpreg(phi->getResultType());
+                if (isFp) {
+                    mv = builder.create<FmvOp>({
+                        new ImpureAttr,
+                        spillOffset.count(phi) ? (Attr*) new SpilledRdAttr GET_SPILLED_ARGS(phi) : RDC(getReg(phi)),
+                        spillOffset.count(def) ? (Attr*) new SpilledRsAttr GET_SPILLED_ARGS(def) : RSC(getReg(def))
+                    });
+                } else {
+                    mv = builder.create<MvOp>({
+                        new ImpureAttr,
+                        spillOffset.count(phi) ? (Attr*) new SpilledRdAttr GET_SPILLED_ARGS(phi) : RDC(getReg(phi)),
+                        spillOffset.count(def) ? (Attr*) new SpilledRsAttr GET_SPILLED_ARGS(def) : RSC(getReg(def))
+                    });
+                }
+                moves.push_back(mv);
+            }
+        }
+
+        std::copy(phis.begin(), phis.end(), std::back_inserter(allPhis));
+
+        for (auto mv : moves) {
+            auto dst = SPILLABLE(mv, Rd);
+            auto src = SPILLABLE(mv, Rs);
+            if (dst == src) {
+                mv->erase();
+                continue;
+            }
+
+            auto parent = mv->getParent();
+            moveMap[parent].emplace_back(dst, src);
+            revMap[parent][{dst, src}] = mv;
+        }
+    }
+
+    for (const auto &[bb, mvs] : moveMap) {
+        std::unordered_map<Reg, Reg> moveGraph;
+        for (auto [dst, src] : mvs) {
+            moveGraph[dst] = src;
+        }
+
+        std::set<Reg> visited, visiting;
+        std::vector<std::pair<Reg, Reg>> sorted;
+        std::vector<Reg> headers;
+        std::unordered_map<Reg, std::vector<Reg>> members;
+        std::unordered_set<Reg> inCycle;
+
+        // DFS
+        std::function<void(Reg)> dfs = [&](Reg node) {
+            visiting.insert(node);
+            Reg src = moveGraph[node];
+            if (visiting.count(src)) {
+                // A node is visited twice. Here's a cycle.
+                headers.push_back(node);
+            } else if (!visited.count(src) && moveGraph.count(src)) {
+                dfs(src); // No access and dependent on others.
+            }
+            visiting.erase(node);
+            visited.insert(node);
+            sorted.emplace_back(node, src);
+        };
+
+        for (auto [dst, src] : mvs) {
+            if (!visited.count(dst)) {
+                dfs(dst);
+            }
+        }
+
+        std::reverse(sorted.begin(), sorted.end());
+
+        for (auto header : headers) {
+            Reg cur = header;
+            do {
+                members[header].push_back(cur);
+                cur = moveGraph[cur];
+            } while (cur != header);
+
+            for (auto member : members[header]) {
+                inCycle.insert(member);
+            }
+        }
+
+        Op *term = bb->getLastOp();
+
+        std::unordered_set<Reg> emitted;
+        for (auto [dst, src] : sorted) {
+            if (dst == src || emitted.count(dst) || inCycle.count(dst)) 
+                continue;
+
+            revMap[bb][{dst, src}]->moveBefore(term);
+            emitted.insert(dst);
+        }
+
+        if (members.empty()) 
+            continue;
+
+        // Back up the value of the loop header to a temporary register (s11/fspillReg2).
+        for (auto header : headers) {
+            const auto &cycle = members[header];
+            assert(!cycle.empty());
+
+            Reg headerSrc = moveGraph[header];
+            auto mv = revMap[bb][{ header, headerSrc }];
+            bool fp = isFP(header);
+            Reg tmp = fp ? fspillReg2 : spillReg2;
+
+            RD(mv) = tmp;
+            mv->moveBefore(term);
+
+            Reg curr = headerSrc;
+            while (curr != header) {
+                Reg nextSrc = moveGraph[curr];
+                revMap[bb][{ curr, nextSrc }]->moveBefore(term);
+                curr = nextSrc;
+            }
+
+            builder.setBeforeOp(term);
+            CREATE_MV(fp, header, tmp);
+        }
+    }
+    
+    for (auto phi : allPhis) {
+        phi->removeAllOperands();
+    }
+    for (auto phi : allPhis) {
+        phi->erase();
+    }
+
 }
 
 void RegAlloc::run() {

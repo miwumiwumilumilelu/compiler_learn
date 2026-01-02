@@ -84,6 +84,9 @@ public:
 #define RS2(op) (op)->get<Rs2Attr>()->reg
 #define REG(op) (op)->get<RegAttr>()->reg
 #define STACKOFF(op) (op)->get<StackOffsetAttr>()->offset
+#define RDC(x) new RdAttr(x)
+#define RSC(x) new RsAttr(x)
+#define RS2C(x) new Rs2Attr(x)
 
 }
 
