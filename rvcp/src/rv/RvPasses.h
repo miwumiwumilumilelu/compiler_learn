@@ -28,6 +28,7 @@ class RegAlloc : public Pass {
 
     void runImpl(Region *region, bool isLeaf);
     // Create both Prologue and Epilogue of a function.
+    int latePeephole(Op *funcOp);
     void proEpilogue(FuncOp *fn, bool isLeaf);
     void tidyup(Region *region);
 public:
