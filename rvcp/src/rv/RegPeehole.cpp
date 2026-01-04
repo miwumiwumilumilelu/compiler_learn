@@ -4,23 +4,52 @@
 using namespace sys::rv;
 using namespace sys;
 
-// 辅助宏：快速创建 Move 指令
 #define CREATE_MV(fp, rd, rs) \
     if (!fp) \
         builder.create<MvOp>({ RDC(rd), RSC(rs) }); \
     else \
         builder.create<FmvOp>({ RDC(rd), RSC(rs) });
 
-// ==========================================
-// 1. 晚期窥孔优化 (Late Peephole)
-// ==========================================
-// 负责在分配寄存器后，合并 Store/Load，消除冗余 Move
-
-// 分支替换宏：用于规范化分支指令
 #define REPLACE_BRANCH(T1, T2) \
     REPLACE_BRANCH_IMPL(T1, T2); \
     REPLACE_BRANCH_IMPL(T2, T1)
 
+// Say the before is `blt`, then we might see
+//   blt %1 %2 <target = bb1> <else = bb2>
+// which means `if (%1 < %2) goto bb1 else goto bb2`.
+//
+// If the next block is just <bb1>, then we flip it to bge, and make the target <bb2>.
+// if the next block is <bb2>, then we make the target <bb2>.
+// otherwise, make the target <bb1>, and add another `j <bb2>`.
+#define REPLACE_BRANCH_IMPL(BeforeTy, AfterTy) \
+    runRewriter(funcOp, [&](BeforeTy *op) { \
+        if (!op->has<ElseAttr>()) \
+            return false; \
+        auto &target = TARGET(op); \
+        auto ifnot = ELSE(op); \
+        auto me = op->getParent(); \
+        /* If there's no "next block", then give up */ \
+        if (me == me->getParent()->getLastBlock()) { \
+            GENERATE_J; \
+            END_REPLACE; \
+        } \
+        if (me->nextBlock() == target) { \
+            builder.replace<AfterTy>(op, { \
+                op->get<RsAttr>(), \
+                op->get<Rs2Attr>(), \
+                new TargetAttr(ifnot), \
+            }); \
+            return true; \
+        } \
+        if (me->nextBlock() == ifnot) { \
+            /* No changes needed. */\
+            return false; \
+        } \
+        GENERATE_J; \
+        END_REPLACE; \
+    })
+
+// Don't touch `target`.
 #define GENERATE_J \
     builder.setAfterOp(op); \
     builder.create<JOp>({ new TargetAttr(ifnot) })
@@ -29,44 +58,42 @@ using namespace sys;
     op->remove<ElseAttr>(); \
     return true
 
-#define REPLACE_BRANCH_IMPL(BeforeTy, AfterTy) \
-    runRewriter(funcOp, [&](BeforeTy *op) { \
-        if (!op->has<ElseAttr>()) return false; \
-        auto &target = TARGET(op); \
-        auto ifnot = ELSE(op); \
-        auto me = op->getParent(); \
-        if (me == me->getParent()->getLastBlock()) { \
-            GENERATE_J; END_REPLACE; \
-        } \
-        if (me->nextBlock() == target) { \
-            builder.replace<AfterTy>(op, { op->get<RsAttr>(), op->get<Rs2Attr>(), new TargetAttr(ifnot), }); \
-            return true; \
-        } \
-        if (me->nextBlock() == ifnot) return false; \
-        GENERATE_J; END_REPLACE; \
-    })
-
 int RegAlloc::latePeephole(Op *funcOp) {
     Builder builder;
+
     int converted = 0;
 
-    // 优化: Store 后紧跟 Load (且地址相同) -> Load 换成 Move
     runRewriter(funcOp, [&](StoreOp *op) {
-        if (op->atBack()) return false;
+        if (op->atBack())
+            return false;
+
+        //   sw a0, N(addr)
+        //   lw a1, N(addr)
+        // becomes
+        //   sw a0, N(addr)
+        //   mv a1, a0
         auto next = op->nextOp();
-        if (isa<LoadOp>(next) && RS(next) == RS2(op) && V(next) == V(op) && SIZE(next) == SIZE(op)) {
+        if (isa<LoadOp>(next) &&
+            RS(next) == RS2(op) && V(next) == V(op) && SIZE(next) == SIZE(op)) {
             converted++;
             builder.setBeforeOp(next);
             CREATE_MV(isFP(RD(next)), RD(next), RS(op));
             next->erase();
             return false;
         }
+
         return false;
     });
 
-    // 优化: Fsd 后紧跟 Fld (浮点存取优化)
     runRewriter(funcOp, [&](FmvdxOp *op) {
-        if (op->atBack()) return false;
+        if (op->atBack())
+            return false;
+
+        //   fmv.x.d a0, fa0
+        //   fmv.d.x fa0, a1
+        // becomes
+        //   fmv.x.d a0, fa0
+        //   mv a1, a0
         auto next = op->nextOp();
         if (isa<FmvxdOp>(next) && RS(next) == RD(op)) {
             converted++;
@@ -75,147 +102,230 @@ int RegAlloc::latePeephole(Op *funcOp) {
             next->erase();
             return false;
         }
+        
         return false;
     });
 
-    // 优化: 合并连续的 Store (Store Folding)
     bool changed;
+    std::vector<Op*> stores;
     do {
         changed = false;
-        auto stores = funcOp->findAll<StoreOp>();
+        // This modifies the content of stores, so cannot run in a rewriter.
+        stores = funcOp->findAll<StoreOp>();
         for (auto op : stores) {
-            if (op == op->getParent()->getLastOp()) continue;
+            if (op == op->getParent()->getLastOp())
+                continue;
             auto next = op->nextOp();
-            // sw zero, N(sp); sw zero, N+4(sp) -> sd zero, N(sp)
-            if (isa<StoreOp>(next) && RS(op) == Reg::zero && RS2(op) == Reg::sp &&
-                RS(next) == Reg::zero && RS2(next) == Reg::sp &&
-                SIZE(op) == 4 && SIZE(next) == 4) {
 
-                if (V(op) % 8 == 0 && V(next) == V(op) + 4) {
-                    converted++;
-                    changed = true;
-                    builder.replace<StoreOp>(op, { RSC(Reg::zero), RS2C(Reg::sp), new IntAttr(V(op)), new SizeAttr(8) });
-                    next->erase();
-                    break;
-                }
-                if (V(op) % 8 == 4 && V(next) == V(op) - 4) {
-                    converted++;
-                    changed = true;
-                    builder.replace<StoreOp>(op, { RSC(Reg::zero), RS2C(Reg::sp), new IntAttr(V(op) - 4), new SizeAttr(8) });
-                    next->erase();
-                    break;
-                }
+            //   sw zero, N(sp)
+            //   sw zero, N+4(sp)
+            // becomes
+            //   sd zero, N(sp)
+            // only when N is a multiple of 8.
+            //
+            // We know `sp` is 16-aligned, but we don't know for other registers.
+            // That's why we fold it only for `sp`.
+            if (isa<StoreOp>(next) &&
+                RS(op) == Reg::zero && RS2(op) == Reg::sp &&
+                RS(next) == Reg::zero && RS2(next) == Reg::sp &&
+                V(op) % 8 == 0 && SIZE(op) == 4 &&
+                V(next) == V(op) + 4 && SIZE(next) == 4) {
+                converted++;
+                changed = true;
+
+                auto offset = V(op);
+                builder.replace<StoreOp>(op, {
+                    RSC(Reg::zero),
+                    RS2C(Reg::sp),
+                    new IntAttr(offset),
+                    new SizeAttr(8),
+                });
+                next->erase();
+                break;
+            }
+
+            // Similarly:
+            //   sw zero, N(sp)
+            //   sw zero, N-4(sp)
+            // becomes
+            //   sd zero, N-4(sp)
+            // only when N-4 is a multiple of 8.
+            if (isa<StoreOp>(next) &&
+                RS(op) == Reg::zero && RS2(op) == Reg::sp &&
+                RS(next) == Reg::zero && RS2(next) == Reg::sp &&
+                V(op) % 8 == 4 && SIZE(op) == 4 &&
+                V(next) == V(op) - 4 && SIZE(next) == 4) {
+                converted++;
+                changed = true;
+
+                auto offset = V(op);
+                builder.replace<StoreOp>(op, {
+                    RSC(Reg::zero),
+                    RS2C(Reg::sp),
+                    new IntAttr(offset - 4),
+                    new SizeAttr(8),
+                });
+                next->erase();
+                break;
             }
         }
     } while (changed);
 
-    // 优化: 消除无用的 Move
+    // Eliminate useless MvOp.
     runRewriter(funcOp, [&](MvOp *op) {
+        // mv a0, a0
         if (RD(op) == RS(op)) {
             converted++;
             op->erase();
             return true;
         }
-        if (!op->atBack()) {
+
+        // mv  a0, a1    <-- op
+        // mv  a1, a0    <-- mv2
+        // We can delete the second operation, `mv2`.
+        if (op != op->getParent()->getLastOp()) {
             auto mv2 = op->nextOp();
             if (isa<MvOp>(mv2) && RD(op) == RS(mv2) && RS(op) == RD(mv2)) {
+                // We can't erase `mv2` because it might be explored afterwards.
+                // We need to change the content of mv2 and erase this one.
+                converted++;
                 op->erase();
-                std::swap(RD(mv2), RS(mv2)); // 消除对称 Move
+                std::swap(RD(mv2), RS(mv2));
             }
         }
         return false;
     });
 
     runRewriter(funcOp, [&](FmvOp *op) {
+        // fmv fa0, fa0
         if (RD(op) == RS(op)) {
             converted++;
             op->erase();
             return true;
         }
+
+        // fmv fa0, fa1    <-- op
+        // fmv fa1, fa0    <-- mv2
+        // We can delete the second operation, `mv2`.
+        // if (op != op->getParent()->getLastOp()) {
+        //     auto mv2 = op->nextOp();
+        //     if (isa<FmvOp>(mv2) && RD(op) == RS(mv2) && RS(op) == RD(mv2)) {
+        //         // We can't erase `mv2` because it might be explored afterwards.
+        //         // We need to change the content of mv2 and erase this one.
+        //         op->erase();
+        //         std::swap(RD(mv2), RS(mv2));
+        //     }
+        // }
         return false;
     });
 
     return converted;
 }
 
-// ==========================================
-// 2. 清理工作 (Tidy Up)
-// ==========================================
-// 负责清理跳板、合并基本块、规范化分支
-
 void RegAlloc::tidyup(Region *region) {
     Builder builder;
     auto funcOp = region->getParent();
     region->updatePreds();
 
-    // 1. 消除单跳转块 (Jump Threading)
+    // Replace blocks with only a single `j` as terminator.
     std::map<BasicBlock*, BasicBlock*> jumpTo;
     for (auto bb : region->getBlocks()) {
         if (bb->getOpCount() == 1 && isa<JOp>(bb->getLastOp())) {
-            jumpTo[bb] = bb->getLastOp()->get<TargetAttr>()->bb;
+            auto target = bb->getLastOp()->get<TargetAttr>()->bb;
+            jumpTo[bb] = target;
         }
     }
+
+    // Calculate jump-to closure.
     bool changed;
     do {
         changed = false;
-        for (auto [k, v] : jumpTo)
+        for (auto [k, v] : jumpTo) {
             if (jumpTo.count(v)) {
                 jumpTo[k] = jumpTo[v];
                 changed = true;
             }
+        }
     } while (changed);
 
-    for (auto bb : region->getBlocks()) {
+    for (auto bb : region->getBlocks()) { 
         auto term = bb->getLastOp();
-        if (auto target = term->find<TargetAttr>())
-            if (jumpTo.count(target->bb)) target->bb = jumpTo[target->bb];
-        if (auto ifnot = term->find<ElseAttr>())
-            if (jumpTo.count(ifnot->bb)) ifnot->bb = jumpTo[ifnot->bb];
-    }
-    region->updatePreds();
-    for (auto [bb, v] : jumpTo) bb->erase();
+        if (auto target = term->find<TargetAttr>()) {
+            if (jumpTo.count(target->bb))
+                target->bb = jumpTo[target->bb];
+        }
 
-    // 2. 基本块合并
+        if (auto ifnot = term->find<ElseAttr>()) {
+            if (jumpTo.count(ifnot->bb))
+                ifnot->bb = jumpTo[ifnot->bb];
+        }
+    }
+
+    // Erase all those single-j's.
+    region->updatePreds();
+    for (auto [bb, v] : jumpTo)
+        bb->erase();
+    
+    // After lowering, combine sequential blocks into one.
+    // Simpler than simplify-cfg, because no phis could remain now.
     do {
         changed = false;
         const auto &bbs = region->getBlocks();
         for (auto bb : bbs) {
-            if (bb->succs.size() != 1) continue;
+            if (bb->succs.size() != 1)
+                continue;
+
             auto succ = *bb->succs.begin();
-            if (succ->preds.size() != 1) continue;
+            if (succ->preds.size() != 1)
+                continue;
 
-            if (isa<JOp>(bb->getLastOp())) bb->getLastOp()->erase();
-
+            // Remove the jump to `succ`.
+            auto term = bb->getLastOp();
+            if (isa<JOp>(term)) {
+                term->erase();
+            }
+            
+            // All successors of `succ` now have pred `bb`.
+            // `bb` also regard them as successors.
             for (auto s : succ->succs) {
                 s->preds.erase(succ);
                 s->preds.insert(bb);
                 bb->succs.insert(s);
             }
+            // Remove `succ` from the successors of `bb`.
             bb->succs.erase(succ);
+
+            // Then move all instruction in `succ` to `bb`.
             auto ops = succ->getOps();
-            for (auto op : ops) op->moveToEnd(bb);
+            for (auto op : ops)
+                op->moveToEnd(bb);
+
             succ->forceErase();
             changed = true;
             break;
         }
     } while (changed);
 
-    // 3. 规范化分支
+    // Now branches are still having both TargetAttr and ElseAttr.
+    // Replace them (perform split when necessary), so that they only have one target.
     REPLACE_BRANCH(BltOp, BgeOp);
     REPLACE_BRANCH(BeqOp, BneOp);
     REPLACE_BRANCH(BleOp, BgtOp);
 
-    // 4. 执行晚期窥孔
     int converted;
     do {
         converted = latePeephole(funcOp);
         convertedTotal += converted;
     } while (converted);
 
-    // 5. 消除无用 Jump
+    // Also, eliminate useless JOp.
     runRewriter(funcOp, [&](JOp *op) {
+        auto &target = TARGET(op);
         auto me = op->getParent();
-        if (me != me->getParent()->getLastBlock() && me->nextBlock() == TARGET(op)) {
+        if (me == me->getParent()->getLastBlock())
+            return false;
+
+        if (me->nextBlock() == target) {
             op->erase();
             return true;
         }
@@ -223,9 +333,6 @@ void RegAlloc::tidyup(Region *region) {
     });
 }
 
-// ==========================================
-// 3. 序言与结语生成 (Prologue & Epilogue)
-// ==========================================
 
 #define CREATE_STORE(addr, offset) \
     if (isFP(reg)) \
@@ -235,14 +342,19 @@ void RegAlloc::tidyup(Region *region) {
 
 void save(Builder builder, const std::vector<Reg> &regs, int offset) {
     using sys::rv::StoreOp;
+
     for (auto reg : regs) {
         offset -= 8;
-        if (offset < 2048) {
+        if (offset < 2048)
             CREATE_STORE(Reg::sp, offset)
-        } else {
-            builder.create<LiOp>({ RDC(spillReg2), new IntAttr(offset) });
-            builder.create<AddOp>({ RDC(spillReg2), RSC(spillReg2), RS2C(Reg::sp) });
-            CREATE_STORE(spillReg2, 0);
+        else {
+            // li   t6, offset
+            // addi t6, t6, sp
+            // sd   reg, 0(t6)
+            // (Because reg might be `s11`)
+            builder.create<LiOp>({ RDC(Reg::t6), new IntAttr(offset) });
+            builder.create<AddOp>({ RDC(Reg::t6), RSC(Reg::t6), RS2C(Reg::sp) });
+            CREATE_STORE(Reg::t6, 0);
         }
     }
 }
@@ -251,20 +363,22 @@ void save(Builder builder, const std::vector<Reg> &regs, int offset) {
     if (isFP(reg)) \
         builder.create<FldOp>({ RDC(reg), RSC(addr), new IntAttr(offset) }); \
     else \
-        builder.create<LoadOp>(ty, { RDC(reg), RSC(addr), new IntAttr(offset), new SizeAttr(8) });
+        builder.create<LoadOp>(Value::i64, { RDC(reg), RSC(addr), new IntAttr(offset), new SizeAttr(8) });
 
 void load(Builder builder, const std::vector<Reg> &regs, int offset) {
     using sys::rv::LoadOp;
+
     for (auto reg : regs) {
         offset -= 8;
-        auto isFloat = isFP(reg);
-        Value::Type ty = isFloat ? Value::f32 : Value::i64;
-        if (offset < 2048) {
+        if (offset < 2048)
             CREATE_LOAD(Reg::sp, offset)
-        } else {
-            builder.create<LiOp>({ RDC(spillReg), new IntAttr(offset) });
-            builder.create<AddOp>({ RDC(spillReg), RSC(spillReg), RS2C(Reg::sp) });
-            CREATE_LOAD(spillReg, 0);
+        else {
+            // li   t5, offset
+            // addi t5, t5, sp
+            // ld   reg, 0(t5)
+            builder.create<LiOp>({ RDC(Reg::t5), new IntAttr(offset) });
+            builder.create<AddOp>({ RDC(Reg::t5), RSC(Reg::t5), RS2C(Reg::sp) });
+            CREATE_LOAD(Reg::t5, 0);
         }
     }
 }
@@ -274,63 +388,125 @@ void RegAlloc::proEpilogue(FuncOp *funcOp, bool isLeaf) {
     auto usedRegs = usedRegisters[funcOp];
     auto region = funcOp->getRegion();
 
-    // 1. 确定需要保存的寄存器
+    // Preserve return address if this calls another function.
     std::vector<Reg> preserve;
-    for (auto x : usedRegs)
-        if (calleeSaved.count(x)) preserve.push_back(x);
-    if (!isLeaf) preserve.push_back(Reg::ra);
+    for (auto x : usedRegs) {
+        if (calleeSaved.count(x))
+            preserve.push_back(x);
+    }
+    if (!isLeaf)
+        preserve.push_back(Reg::ra);
 
-    // 2. 计算栈大小
+    // If there's a SubSpOp, then it must be at the top of the first block.
     int &offset = STACKOFF(funcOp);
     offset += 8 * preserve.size();
-    if (offset % 16 != 0) offset = offset / 16 * 16 + 16;
 
-    // 3. 生成序言
+    // Round op to the nearest multiple of 16.
+    // This won't be entered in the special case where offset == 0.
+    if (offset % 16 != 0)
+        offset = offset / 16 * 16 + 16;
+
+    // Add function prologue, preserving the regs.
     auto entry = region->getFirstBlock();
     builder.setToBlockStart(entry);
-    if (offset != 0) builder.create<SubSpOp>({ new IntAttr(offset) });
+    if (offset != 0)
+        builder.create<SubSpOp>({ new IntAttr(offset) });
+    
     save(builder, preserve, offset);
 
-    // 4. 生成结语 (统一返回块)
+    // Similarly add function epilogue.
     if (offset != 0) {
         auto rets = funcOp->findAll<RetOp>();
         auto bb = region->appendBlock();
-        for (auto ret : rets) builder.replace<JOp>(ret, { new TargetAttr(bb) });
+        for (auto ret : rets)
+            builder.replace<JOp>(ret, { new TargetAttr(bb) });
 
         builder.setToBlockStart(bb);
+
         load(builder, preserve, offset);
         builder.create<SubSpOp>({ new IntAttr(-offset) });
         builder.create<RetOp>();
     }
 
-    // 5. 处理栈传参 (修正偏移)
+    // Caller preserved registers are marked correctly as interfered,
+    // because of the placeholders.
+
+    // Deal with remaining GetArg.
+    // The arguments passed by registers have already been eliminated.
+    // Now all remaining ones are passed on stack; sort them according to index.
     auto remainingGets = funcOp->findAll<GetArgOp>();
-    std::sort(remainingGets.begin(), remainingGets.end(), [](Op *a, Op *b) { return V(a) < V(b); });
+    std::sort(remainingGets.begin(), remainingGets.end(), [](Op *a, Op *b) {
+        return V(a) < V(b);
+    });
     std::map<Op*, int> argOffsets;
     int argOffset = 0;
+
     for (auto op : remainingGets) {
         argOffsets[op] = argOffset;
         argOffset += 8;
     }
 
     runRewriter(funcOp, [&](GetArgOp *op) {
+        auto value = V(op);
+        // At least one arg.
+        assert(value >= 8);
+
+        // `sp + offset` is the base pointer.
+        // We read past the base pointer (starting from 0):
+        //    <arg 8> bp + 0
+        //    <arg 9> bp + 8
+        // ...
+        //     (High Address)
+        //   +----------------------+
+        //   | ...                  |
+        //   | Caller               |
+        //   | ...                  |
+        //   +----------------------+  <--- Caller's SP 
+        //   | Arg 9                |   = 8
+        //   +----------------------+
+        //   | Arg 8                |   = 0  <--- argOffsets[op] starting
+        //   +----------------------+  <---  bp = (sp + offset)
+        //   |                      |
+        //   |                      |
+        //   |       Callee         |
+        //   |                      |  offset
+        //   |                      |
+        //   |                      |
+        //   +----------------------+  <--- Callee's SP (Base Pointer)
+        //     (Low Address)
+        // ...
+        assert(argOffsets.count(op));
         int myoffset = offset + argOffsets[op];
         builder.setBeforeOp(op);
         builder.replace<LoadOp>(op, isFP(RD(op)) ? Value::f32 : Value::i64, {
-            RDC(RD(op)), RSC(Reg::sp), new IntAttr(myoffset), new SizeAttr(8)
+            RDC(RD(op)),
+            RSC(Reg::sp),
+            new IntAttr(myoffset),
+            new SizeAttr(8)
         });
         return false;
     });
 
-    // 6. 替换 SubSpOp 为真实指令
+    //   subsp <4>
+    // becomes
+    //   addi <rd = sp> <rs = sp> <-4>
     runRewriter(funcOp, [&](SubSpOp *op) {
-        int val = V(op);
-        if (val <= 2048 && val > -2048) {
-            builder.replace<AddiOp>(op, { RDC(Reg::sp), RSC(Reg::sp), new IntAttr(-val) });
-        } else {
+        int offset = V(op);
+        // -offset : [-2048, 2047]
+        // offset : [-2047, 2048]
+        if (offset <= 2048 && offset > -2048)
+            builder.replace<AddiOp>(op, { RDC(Reg::sp), RSC(Reg::sp), new IntAttr(-offset) });
+        else {
+            // becomes
+            //   li <t0> <offset>
+            //   sub <rd = sp> <rs = sp> <rt = t0>
             builder.setBeforeOp(op);
-            builder.create<LiOp>({ RDC(Reg::t0), new IntAttr(val) });
-            builder.replace<SubOp>(op, { RDC(Reg::sp), RSC(Reg::sp), RS2C(Reg::t0) });
+            builder.create<LiOp>({ RDC(Reg::t0), new IntAttr(offset) });
+            builder.replace<SubOp>(op, {
+                RDC(Reg::sp),
+                RSC(Reg::sp),
+                RS2C(Reg::t0)
+            });
         }
         return true;
     });

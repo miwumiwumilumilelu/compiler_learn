@@ -63,7 +63,7 @@ void ArrayBase::run() {
         }
 
         // Put Global in the first basic block.
-        Builder builder;
+        Builder builder; 
         auto gets = func->findAll<GetGlobalOp>();
         std::unordered_map<std::string, Op*> hoisted;
 

@@ -126,9 +126,39 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
     const int regcountf = isLeaf ? leafRegCntf : normalRegCntf;
 
     Builder builder;
-    std::map<Op*, Reg> assignment;
 
+    // pre-Lowering (force replace some ops)
     auto funcOp = region->getParent();
+    runRewriter(funcOp, [&](EqOp *op) {
+        builder.setBeforeOp(op);
+        auto xorOp = builder.create<XorOp>(op->getOperands(), op->getAttrs());
+        builder.replace<SeqzOp>(op,{ xorOp });
+        return true;
+    });
+
+    runRewriter(funcOp, [&](NeOp *op) {
+        builder.setBeforeOp(op);
+        auto xorOp = builder.create<XorOp>(op->getOperands(), op->getAttrs());
+        builder.replace<SnezOp>(op,{ xorOp });
+        return true;
+    });
+
+    runRewriter(funcOp, [&](LeOp *op) {
+        builder.setBeforeOp(op);
+        auto l = op->getOperand(0);
+        auto r = op->getOperand(1);
+        // Turn (l <= r) into !(r < l).
+        auto xorOp = builder.create<SltOp>({ r, l }, op->getAttrs());
+        builder.replace<SeqzOp>(op,{ xorOp });
+        return true;
+    });
+
+    runRewriter(funcOp, [&](LtOp *op) {
+        builder.replace<SltOp>(op, op->getOperands(), op->getAttrs());
+        return true;
+    });
+
+    std::map<Op*, Reg> assignment;
 
     // Handle function calls (CallOp)
     // Purpose: To protect the Caller-Saved registers (t0-t6, a0-a7, etc.).

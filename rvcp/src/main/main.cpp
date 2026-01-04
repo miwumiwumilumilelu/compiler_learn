@@ -78,6 +78,9 @@ int main(int argc, char **argv) {
   // dumpPass.run();
   sys::rv::RegAlloc regAlloc(module);
   regAlloc.run();
+
+  sys::rv::Dump dumpPass(module, opts.outputFile);
+  dumpPass.run();
   
   return 0;
 }
