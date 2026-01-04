@@ -57,9 +57,9 @@ void ArrayBase::run() {
         auto bb = region->getFirstBlock();
         
         if (bb->getOpCount() && isa<AllocaOp>(bb->getFirstOp())) {
-            auto next = bb->nextBlock();
-            if (next)
-                bb = next;
+            if (bb != region->getLastBlock()) {
+                bb = bb->nextBlock();
+            }
         }
 
         // Put Global in the first basic block.
