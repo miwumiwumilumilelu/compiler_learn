@@ -131,6 +131,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
     auto funcOp = region->getParent();
     runRewriter(funcOp, [&](EqOp *op) {
         builder.setBeforeOp(op);
+        // eq a, b  =>  xor t, a, b; seqz d, t
         auto xorOp = builder.create<XorOp>(op->getOperands(), op->getAttrs());
         builder.replace<SeqzOp>(op,{ xorOp });
         return true;
@@ -138,6 +139,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
 
     runRewriter(funcOp, [&](NeOp *op) {
         builder.setBeforeOp(op);
+        // ne a, b  =>  xor t, a, b; snez d, t
         auto xorOp = builder.create<XorOp>(op->getOperands(), op->getAttrs());
         builder.replace<SnezOp>(op,{ xorOp });
         return true;
@@ -147,6 +149,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
         builder.setBeforeOp(op);
         auto l = op->getOperand(0);
         auto r = op->getOperand(1);
+        // le a, b  =>  lt b, a (即 !(b < a)) => seqz (b < a)
         // Turn (l <= r) into !(r < l).
         auto xorOp = builder.create<SltOp>({ r, l }, op->getAttrs());
         builder.replace<SeqzOp>(op,{ xorOp });
@@ -154,6 +157,7 @@ void RegAlloc::runImpl(Region *region, bool isLeaf) {
     });
 
     runRewriter(funcOp, [&](LtOp *op) {
+        // lt a, b => slt a, b
         builder.replace<SltOp>(op, op->getOperands(), op->getAttrs());
         return true;
     });

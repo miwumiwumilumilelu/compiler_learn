@@ -12,13 +12,9 @@ main:
   li a3, 3
   xor a2, a0, a3
   seqz a2, a2
-  beq a0, a3, .Lbb4
-  j .Lbb4
   addw a1, a1, a0
   li a3, 20
   slt a2, a3, a1
-  blt a3, a1, .Lbb5
-  j .Lbb5
   li a2, 1
   addw a0, a0, a2
   j .Lbb1

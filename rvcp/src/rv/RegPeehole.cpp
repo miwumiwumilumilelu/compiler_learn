@@ -281,7 +281,7 @@ void RegAlloc::tidyup(Region *region) {
 
             // Remove the jump to `succ`.
             auto term = bb->getLastOp();
-            if (isa<JOp>(term)) {
+            if (term->has<TargetAttr>()) {
                 term->erase();
             }
             
