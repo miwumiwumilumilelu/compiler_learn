@@ -17,11 +17,14 @@
 __global__ void colorToGrayscaleConversion(float* Pout, float* Pin_r, float* Pin_g, float* Pin_b, int n) {
     // 1. 计算全局线程索引
     // int i = ...
-    
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
     // 2. 边界检查与计算
     // if (...) {
     //     Pout[i] = ...
     // }
+    if (i < n) {
+        Pout[i] = 0.21 * Pin_r[i] + 0.72 * Pin_g[i] + 0.07 * Pin_b[i];
+    }
 }
 
 int main() {
@@ -51,6 +54,10 @@ int main() {
     // cudaMalloc...
     // cudaMalloc...
     // cudaMalloc...
+    cudaMalloc ((void**)&d_r, size);
+    cudaMalloc ((void**)&d_g, size);
+    cudaMalloc ((void**)&d_b, size);
+    cudaMalloc ((void**)&d_gray, size);
 
 
     // =========================================================
@@ -61,6 +68,9 @@ int main() {
     // cudaMemcpy...
     // cudaMemcpy...
     // cudaMemcpy...
+    cudaMemcpy(d_r, h_r, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_g, h_g, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b, h_b, size, cudaMemcpyHostToDevice);
 
 
     // =========================================================
@@ -70,7 +80,7 @@ int main() {
     // 2. 计算 grid 大小，确保能覆盖 N 个元素 (使用 ceil 逻辑)
     // =========================================================
     int threadsPerBlock = 256;
-    int blocksPerGrid = 0; // 修改这里
+    int blocksPerGrid = ceil(N/(float)threadsPerBlock); // 修改这里
 
 
     printf("Launching kernel with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
@@ -79,6 +89,7 @@ int main() {
     // TODO 5: 启动 Kernel
     // =========================================================
     // colorToGrayscaleConversion<<<...>>>(...);
+    colorToGrayscaleConversion<<<blocksPerGrid, threadsPerBlock>>>(d_gray, d_r, d_g, d_b, N);
 
 
     // 检查 Kernel 是否出错 (可选，但推荐)
@@ -92,6 +103,7 @@ int main() {
     // 提示：使用 cudaMemcpy，方向是 cudaMemcpyDeviceToHost
     // =========================================================
     // cudaMemcpy...
+    cudaMemcpy(h_gray, d_gray, size, cudaMemcpyDeviceToHost);
 
 
     // 验证结果 (CPU 算一遍对比)
@@ -118,6 +130,10 @@ int main() {
     // 提示：使用 cudaFree
     // =========================================================
     // cudaFree...
+    cudaFree(d_r);
+    cudaFree(d_g);
+    cudaFree(d_b);
+    cudaFree(d_gray);
 
 
     // 释放 Host 内存
