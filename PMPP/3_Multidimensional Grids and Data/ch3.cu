@@ -63,8 +63,8 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
     // ---------------------------------------------------------
     // TODO 3: 计算 2D 坐标 (col, row) 并进行基本的越界检查
     // ---------------------------------------------------------
-    int col = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
-    int row = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
+    int row = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
+    int col = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
 
     if (col < w && row < h) {
         int pixVal = 0;
@@ -135,7 +135,7 @@ int main() {
     // Grid 大小要足以覆盖 MATRIX_SIZE (使用 ceil 逻辑)
     // ---------------------------------------------------------
     dim3 dimBlockMat(16, 16, 1); // 修改这里
-    dim3 dimGridMat(ceil(IMG_WIDTH/16.0), ceil(IMG_HEIGHT/16.0));  // 修改这里
+    dim3 dimGridMat(ceil(MATRIX_SIZE/16.0), ceil(MATRIX_SIZE/16.0));  // 修改这里
 
     printf("Launching Matrix Mul Kernel...\n");
     matrixMulKernel<<<dimGridMat, dimBlockMat>>>(d_A, d_B, d_C, MATRIX_SIZE);
