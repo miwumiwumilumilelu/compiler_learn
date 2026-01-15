@@ -89,7 +89,7 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
                 //      pixVal += in[...];  // 记得把 2D 坐标转 1D 索引
                 //      pixels++;
                 // }
-                if (curRow <= h && curRow >= 0 && curCol <= w && curCol >=0) {
+                if (curRow < h && curRow >= 0 && curCol < w && curCol >=0) {
                     pixVal += in[curRow * w + curCol];
                     pixels ++;
                 }
