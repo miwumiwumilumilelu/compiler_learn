@@ -33,8 +33,8 @@ __global__ void matrixMulKernel(float* A, float* B, float* C, int Width) {
     // TODO 1: 计算当前线程负责的 row (行) 和 col (列)
     // 提示：使用 2D 的 blockIdx, blockDim, threadIdx
     // ---------------------------------------------------------
-    int row = 0; // 修改这里
-    int col = 0; // 修改这里
+    int row = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
+    int col = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
 
     if (row < Width && col < Width) {
         float sum = 0.0f;
@@ -47,6 +47,9 @@ __global__ void matrixMulKernel(float* A, float* B, float* C, int Width) {
         // for (...) {
         //     sum += ...
         // }
+        for (int k = 0; k < Width; k++) {
+            sum += A[row * Width + k] * B[k * Width + col];
+        }
         
         C[row * Width + col] = sum;
     }
@@ -60,8 +63,8 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
     // ---------------------------------------------------------
     // TODO 3: 计算 2D 坐标 (col, row) 并进行基本的越界检查
     // ---------------------------------------------------------
-    int col = 0; // 修改这里
-    int row = 0; // 修改这里
+    int col = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
+    int row = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
 
     if (col < w && row < h) {
         int pixVal = 0;
@@ -72,8 +75,8 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
         // 提示：blurRow 从 -BLUR_SIZE 到 +BLUR_SIZE
         //       blurCol 从 -BLUR_SIZE 到 +BLUR_SIZE
         // -----------------------------------------------------
-        for (int blurRow = -BLUR_SIZE; blurRow <= BLUR_SIZE; ++blurRow) {
-            for (int blurCol = -BLUR_SIZE; blurCol <= BLUR_SIZE; ++blurCol) {
+        for (int blurRow = -BLUR_SIZE; blurRow < BLUR_SIZE + 1; ++blurRow) {
+            for (int blurCol = -BLUR_SIZE; blurCol < BLUR_SIZE + 1; ++blurCol) {
                 
                 int curRow = row + blurRow;
                 int curCol = col + blurCol;
@@ -86,6 +89,10 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
                 //      pixVal += in[...];  // 记得把 2D 坐标转 1D 索引
                 //      pixels++;
                 // }
+                if (curRow <= h && curRow >= 0 && curCol <= w && curCol >=0) {
+                    pixVal += in[curRow * w + curCol];
+                    pixels ++;
+                }
             }
         }
 
@@ -127,8 +134,8 @@ int main() {
     // 要求：Block 大小为 16x16
     // Grid 大小要足以覆盖 MATRIX_SIZE (使用 ceil 逻辑)
     // ---------------------------------------------------------
-    dim3 dimBlockMat(1, 1); // 修改这里
-    dim3 dimGridMat(1, 1);  // 修改这里
+    dim3 dimBlockMat(16, 16, 1); // 修改这里
+    dim3 dimGridMat(ceil(IMG_WIDTH/16.0), ceil(IMG_HEIGHT/16.0));  // 修改这里
 
     printf("Launching Matrix Mul Kernel...\n");
     matrixMulKernel<<<dimGridMat, dimBlockMat>>>(d_A, d_B, d_C, MATRIX_SIZE);
@@ -161,8 +168,8 @@ int main() {
     // 要求：Block 大小为 16x16
     // Grid 大小要足以覆盖 IMG_WIDTH 和 IMG_HEIGHT
     // ---------------------------------------------------------
-    dim3 dimBlockImg(1, 1); // 修改这里
-    dim3 dimGridImg(1, 1);  // 修改这里
+    dim3 dimBlockImg(16, 16, 1); // 修改这里
+    dim3 dimGridImg((IMG_WIDTH-1)/16 + 1, (IMG_HEIGHT-1)/16 + 1);  // 修改这里
 
     printf("Launching Blur Kernel...\n");
     blurKernel<<<dimGridImg, dimBlockImg>>>(d_in, d_out, IMG_WIDTH, IMG_HEIGHT);
