@@ -33,8 +33,8 @@ __global__ void matrixMulKernel(float* A, float* B, float* C, int Width) {
     // TODO 1: 计算当前线程负责的 row (行) 和 col (列)
     // 提示：使用 2D 的 blockIdx, blockDim, threadIdx
     // ---------------------------------------------------------
-    int row = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
-    int col = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
+    int col = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
+    int row = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
 
     if (row < Width && col < Width) {
         float sum = 0.0f;
@@ -63,8 +63,8 @@ __global__ void blurKernel(unsigned char* in, unsigned char* out, int w, int h) 
     // ---------------------------------------------------------
     // TODO 3: 计算 2D 坐标 (col, row) 并进行基本的越界检查
     // ---------------------------------------------------------
-    int row = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
-    int col = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
+    int col = blockDim.x * blockIdx.x + threadIdx.x; // 修改这里
+    int row = blockDim.y * blockIdx.y + threadIdx.y; // 修改这里
 
     if (col < w && row < h) {
         int pixVal = 0;
