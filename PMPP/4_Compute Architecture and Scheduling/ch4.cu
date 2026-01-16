@@ -53,6 +53,7 @@ __global__ void shift_kernel(int* d_in, int* d_out, int N) {
     // 思考：如果不加，步骤 2 读取 s_data[tid+1] 时，邻居的数据可能还没写进去！
     // ---------------------------------------------------------
     // [在这里填入代码]
+    __syncthreads();
 
     // 2. 计算 (当前值 + 右邻居的值)
     if (idx < N - 1 && tid < blockDim.x - 1) {
@@ -72,7 +73,7 @@ __global__ void divergence_kernel(float* d_data) {
     // TODO 2: 编写一个会导致 Severe Divergence (严重发散) 的条件
     // 提示：使用 tid % 2 相关逻辑，让奇偶线程走不同路径
     // ---------------------------------------------------------
-    if ( /* 填入条件 */ ) {
+    if ( /* 填入条件 */ tid % 2 == 0 ) {
         val = 1.0f; // 路径 A (快)
     } else {
         val = 2.0f; // 路径 B (快)
@@ -82,7 +83,7 @@ __global__ void divergence_kernel(float* d_data) {
     // TODO 3: 编写一个不会导致发散 (或者发散最小) 的条件
     // 提示：让同一个 Warp 内的线程 (tid / 32) 走相同的路径
     // ---------------------------------------------------------
-    if ( /* 填入条件 */ ) {
+    if ( /* 填入条件 */ (tid / 32) % 2 == 0) {
         val += 10.0f;
     }
 
@@ -106,7 +107,7 @@ void calculate_occupancy(cudaDeviceProp prop, int blockSize, int regsPerThread) 
     // TODO 4: 计算受限于“线程槽” (Thread Slots) 能跑多少个 Block？
     // 公式：SM最大线程数 / Block大小
     // ---------------------------------------------------------
-    int limit_by_threads = 0; // 修改这里
+    int limit_by_threads = maxThreadsPerSM / maxBlocksPerSM ; // 修改这里
 
     // ---------------------------------------------------------
     // TODO 5: 计算受限于“寄存器” (Registers) 能跑多少个 Block？
@@ -114,7 +115,7 @@ void calculate_occupancy(cudaDeviceProp prop, int blockSize, int regsPerThread) 
     // 1. 一个 Block 需要的总寄存器 = blockSize * regsPerThread
     // 2. SM 能装多少个这样的 Block = maxRegsPerSM / Block总寄存器
     // ---------------------------------------------------------
-    int limit_by_regs = 0; // 修改这里
+    int limit_by_regs = maxRegsPerSM / (maxBlocksPerSM * (maxRegsPerSM / maxThreadsPerSM)); // 修改这里
 
     // 计算最终能跑的 Block 数 (取三者最小值: 线程限制, 寄存器限制, 硬件Block数限制)
     int active_blocks = limit_by_threads;
@@ -160,9 +161,9 @@ int main() {
     // 2. 每个 Block 最大线程数 (maxThreadsPerBlock)
     // 3. 每个 SM 最大寄存器数 (regsPerMultiprocessor)
     // ---------------------------------------------------------
-    printf("SM Count: %d\n", 0); // 修改
-    printf("Max Threads per Block: %d\n", 0); // 修改
-    printf("Max Regs per SM: %d\n", 0); // 修改
+    printf("SM Count: %d\n", prop.multiProcessorCount); // 修改
+    printf("Max Threads per Block: %d\n", prop.maxThreadsPerBlock); // 修改
+    printf("Max Regs per SM: %d\n", prop.regsPerMultiprocessor); // 修改
 
     // === 测试 1: 占用率计算 ===
     // 场景 A: 理想情况 (512线程, 32个寄存器)
