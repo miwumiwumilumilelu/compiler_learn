@@ -107,7 +107,7 @@ void calculate_occupancy(cudaDeviceProp prop, int blockSize, int regsPerThread) 
     // TODO 4: 计算受限于“线程槽” (Thread Slots) 能跑多少个 Block？
     // 公式：SM最大线程数 / Block大小
     // ---------------------------------------------------------
-    int limit_by_threads = maxThreadsPerSM / maxBlocksPerSM ; // 修改这里
+    int limit_by_threads = maxThreadsPerSM / blockSize ; // 修改这里
 
     // ---------------------------------------------------------
     // TODO 5: 计算受限于“寄存器” (Registers) 能跑多少个 Block？
@@ -115,7 +115,7 @@ void calculate_occupancy(cudaDeviceProp prop, int blockSize, int regsPerThread) 
     // 1. 一个 Block 需要的总寄存器 = blockSize * regsPerThread
     // 2. SM 能装多少个这样的 Block = maxRegsPerSM / Block总寄存器
     // ---------------------------------------------------------
-    int limit_by_regs = maxRegsPerSM / (maxBlocksPerSM * (maxRegsPerSM / maxThreadsPerSM)); // 修改这里
+    int limit_by_regs = maxRegsPerSM / (blockSize * regsPerThread); // 修改这里
 
     // 计算最终能跑的 Block 数 (取三者最小值: 线程限制, 寄存器限制, 硬件Block数限制)
     int active_blocks = limit_by_threads;
