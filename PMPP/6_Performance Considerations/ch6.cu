@@ -92,6 +92,7 @@ __global__ void transposeCoalesced(float *out, const float *in, int width, int h
     // 必须等待 Block 内所有线程都把数据搬进 Shared Memory
     // --------------------------------------------------------
     // ...
+    __syncthreads();
 
     // --- 关键步骤：坐标变换 (Corner Turning) ---
     
