@@ -42,8 +42,11 @@ __global__ void transposeNaive(float *out, const float *in, int width, int heigh
         
         // int idx_in = ...
         // int idx_out = ...
+        int idx_in = y * width + x;
+        int idx_out = x * height + y;
         
         // out[idx_out] = in[idx_in];
+        out[idx_out] = in[idx_in];
     }
 }
 
@@ -62,6 +65,7 @@ __global__ void transposeCoalesced(float *out, const float *in, int width, int h
     // 提示：声明一个 [TILE_DIM][TILE_DIM + 1] 的 float 数组。
     // --------------------------------------------------------
     // __shared__ float tile[...][...];
+    __shared__ float tile[TILE_DIM][TILE_DIM + 1];
 
     // 计算当前线程在原矩阵中的全局坐标 (xIndex, yIndex)
     int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
@@ -76,7 +80,9 @@ __global__ void transposeCoalesced(float *out, const float *in, int width, int h
     // 2. 将 Global Memory 的数据加载到 tile[threadIdx.y][threadIdx.x]
     // 思考：为什么是 [ty][tx]？因为我们要保持 warp 内连续的 tx 访问连续的内存。
     // --------------------------------------------------------
-
+    if (xIndex < width && yIndex < height) {
+        tile[threadIdx.y][threadIdx.x] = in[index_in];
+    }
     // if (...) {
     //     tile[...][...] = in[...];
     // }
@@ -109,7 +115,9 @@ __global__ void transposeCoalesced(float *out, const float *in, int width, int h
     //       原本的数据应该在 tile 的什么位置？
     //       我们需要读取 tile[threadIdx.x][threadIdx.y] 吗？
     // --------------------------------------------------------
-
+    if (xIndex_new < height && yIndex_new < width) {
+        out[index_out] = tile[threadIdx.x][threadIdx.y];
+    }
     // if (...) {
     //     out[...] = tile[...][...];
     // }
