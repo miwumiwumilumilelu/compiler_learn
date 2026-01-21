@@ -30,12 +30,16 @@ void randomInit(float *data, int size) {
 // ============================================================================
 __global__ void matrixMulStatic(const float *A, const float *B, float *C, 
                                 int M, int N, int K) 
+                                // A(MxK) X B(KxN) = C(MxN)
 {
     // --------------------------------------------------------------------
     // TODO 1: 声明静态共享内存
     // 需要两个二维数组 As 和 Bs，大小均为 [TILE_WIDTH][TILE_WIDTH]
     // --------------------------------------------------------------------
     // [在这里填入代码]
+    __shared__ float As[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bs[TILE_WIDTH][TILE_WIDTH];
+
 
     // 计算索引
     int bx = blockIdx.x; int by = blockIdx.y;
@@ -62,6 +66,12 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
         // 3. 如果越界，As[ty][tx] 填 0.0f。
         // ----------------------------------------------------------------
         // [在这里填入代码]
+        if (row < M && ph * TILE_WIDTH + tx < K) {
+            As[ty][tx] = A[row * K + (ph * TILE_WIDTH + tx)];
+        } else {
+            As[ty][tx] = 0.0f;
+        }
+        
 
         // ----------------------------------------------------------------
         // TODO 3: 协作加载 B 的 Tile 到 Bs (包含边界检查)
@@ -72,12 +82,19 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
         // 3. 如果越界，Bs[ty][tx] 填 0.0f。
         // ----------------------------------------------------------------
         // [在这里填入代码]
+        if (ph * TILE_WIDTH + ty < K && col < N) {
+            Bs[ty][tx] = B[(ph * TILE_WIDTH + ty) * K + col];
+        } else {
+            Bs[ty][tx] = 0.0f;
+        }
 
         // ----------------------------------------------------------------
         // TODO 4: 第一次同步
         // 思考: 为什么要在这里同步？(Read-After-Write)
         // ----------------------------------------------------------------
         // [在这里填入代码]
+        __syncthreads(); // 防止累加的时候smem还未读入完全
+            
 
         // ----------------------------------------------------------------
         // TODO 5: 计算 Partial Dot Product
@@ -86,6 +103,7 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
         for (int k = 0; k < TILE_WIDTH; ++k) {
             // [在这里填入代码]
             // Pvalue += ...
+            Pvalue += As[ty][k] * Bs[k][tx];
         }
 
         // ----------------------------------------------------------------
@@ -93,6 +111,7 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
         // 思考: 为什么要在这里同步？(Write-After-Read)
         // ----------------------------------------------------------------
         // [在这里填入代码]
+        __syncthreads(); // 防止覆盖旧值
     }
 
     // ----------------------------------------------------------------
@@ -100,6 +119,9 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
     // 提示: 只有在 C 矩阵范围内的线程才写回 (row < M && col < N)
     // ----------------------------------------------------------------
     // [在这里填入代码]
+    if (row < M && col < N) {
+        C[row * N + col] = Pvalue;
+    }
 }
 
 // ============================================================================
@@ -117,6 +139,7 @@ __global__ void matrixMulDynamic(const float *A, const float *B, float *C,
     // 变量名: s_mem[] (大小未定)
     // ----------------------------------------------------------------
     // [在这里填入代码]
+    extern __shared__ float s_mem[];
 
     // ----------------------------------------------------------------
     // TODO 9: 指针偏移
@@ -126,6 +149,8 @@ __global__ void matrixMulDynamic(const float *A, const float *B, float *C,
     // ----------------------------------------------------------------
     // float *As = ...
     // float *Bs = ...
+    float *As = s_mem;
+    float *Bs = s_mem + (tile_width * tile_width);
 
     int bx = blockIdx.x; int by = blockIdx.y;
     int tx = threadIdx.x; int ty = threadIdx.y;
@@ -147,20 +172,25 @@ __global__ void matrixMulDynamic(const float *A, const float *B, float *C,
         // Load A
         if (row < M && (ph * tile_width + tx) < K)
             // [在这里填入代码] As[...] = ...
+            As[ty * tile_width + tx] = A [row * K + (ph * tile_width + tx)];
         else
             // [在这里填入代码] As[...] = 0.0f;
+            As[ty * tile_width + tx] = 0.0f;
 
         // Load B
         if ((ph * tile_width + ty) < K && col < N)
             // [在这里填入代码] Bs[...] = ...
+            Bs[ty * tile_width + tx] = B[(ph * tile_width + ty) * K + col];
         else
-            // [在这里填入代码] Bs[...] = 0.0f;
+            // [在这里填入代码] Bs[...] = 0.0f;s
+            Bs[ty * tile_width + tx] = 0.0f;
 
         __syncthreads();
 
         // Compute
         for (int k = 0; k < tile_width; ++k) {
             // [在这里填入代码] Pvalue += As[...] * Bs[...]
+            Pvalue += As[ty * tile_width + k] * Bs[k * tile_width + tx];
         }
 
         __syncthreads();
