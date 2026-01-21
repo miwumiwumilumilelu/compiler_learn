@@ -5,7 +5,7 @@
 // 配置区域
 // =========================================================
 // Tile 宽度，对应 Warp Size (32) 以获得最佳性能
-#define TILE_DIM 32 
+#define TILE_DIM 16 
 
 // 宏：检查 CUDA 错误
 #define CHECK(call)                                                            \
@@ -124,6 +124,101 @@ __global__ void transposeCoalesced(float *out, const float *in, int width, int h
     // }
 }
 
+// =========================================================
+// KERNEL 3: 线程粗化版转置 (Thread Coarsening)
+// 对应章节：6.3 Thread Coarsening
+// 策略：一个线程负责搬运这一列中的 4 个元素。
+// 收益：
+// 1. 减少了索引计算的指令开销 (Instruction Overhead)。
+// 2. 增加了单线程的指令级并行度 (ILP)，有助于进一步掩盖延迟。
+// =========================================================
+
+// 粗化因子：每个线程处理 4 个元素
+#define COARSE_FACTOR 4 
+
+__global__ void transposeCoarsened(float *out, const float *in, int width, int height)
+{
+    // --------------------------------------------------------
+    // TODO 6: 声明 Shared Memory
+    // 思考：现在一个 Block 还是 32x32 个线程吗？
+    // 不！我们的 Block 维度没变 (32x32)，但是我们在 y 方向上要处理 4 倍的数据。
+    // 所以 Shared Memory 的大小依然是 Tile 对应的物理大小。
+    // 我们的目标是处理一个 [TILE_DIM][TILE_DIM] 的区域，
+    // 但是 y 方向只需要 TILE_DIM / COARSE_FACTOR 个线程就能覆盖。
+    // 为了简单起见，我们保持 Block 为 32x32，但是每个线程在 y 方向循环 4 次。
+    // Shared Memory 需要存下一个完整的 Tile [TILE_DIM][TILE_DIM+1]。
+    // --------------------------------------------------------
+    __shared__ float tile[TILE_DIM][TILE_DIM + 1];
+
+    // 计算基础坐标
+    int xIndex = blockIdx.x * TILE_DIM + threadIdx.x;
+    // y方向的起始点：注意，现在每个 Block 负责 TILE_DIM 行，
+    // 但是 Block 内部只有 TILE_DIM / COARSE_FACTOR 个线程在干活？
+    // 或者我们保持 32x32 线程，但是每个线程负责 4 个独立的 Tile？
+    // ❌ 不，通常粗化是：保持 Block 维度不变，让每个线程多干活，从而减少 Block 总数。
+    // 这里我们采用策略：Block 依然是 32x32 (逻辑上)，但线程数砍为 32x8 (物理上)。
+    // 也就是说：blockDim.y = TILE_DIM / COARSE_FACTOR。
+    
+    int yIndexStart = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    // --------------------------------------------------------
+    // TODO 7: 循环读取 (Coarsened Load)
+    // 每个线程要循环 COARSE_FACTOR 次，每次读取一行
+    // --------------------------------------------------------
+    for (int i = 0; i < COARSE_FACTOR; ++i) {
+        // 计算当前要处理的行号：基础行号 + i * (Block的高度)
+        // 也就是 stride 是 blockDim.y
+        int yIndex = yIndexStart + i * blockDim.y;
+        
+        int index_in = yIndex * width + xIndex;
+
+        // 边界检查并加载到 Smem
+        if (xIndex < width && yIndex < height) {
+            // 注意 Smem 的写入位置：也要随着 i 偏移
+            tile[threadIdx.y + i * blockDim.y][threadIdx.x] = in[index_in];
+        }
+    }
+
+    // 同步：等大家把 4 行数据都搬完
+    __syncthreads();
+
+    // --------------------------------------------------------
+    // TODO 8: 循环写入 (Coarsened Store)
+    // 同样的逻辑，计算输出坐标，写回 Global Memory
+    // 记得 Corner Turning：输入是 tile[y][x]，输出是 tile[x][y]
+    // --------------------------------------------------------
+    
+    // 计算输出的基础坐标 (注意转置：BlockIdx.x/y 互换)
+    int xIndex_new = blockIdx.y * TILE_DIM + threadIdx.x;
+    int yIndex_new = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (int i = 0; i < COARSE_FACTOR; ++i) {
+        // 现在的 y (对应原来的 x) 是连续的
+        // 现在的 x (对应原来的 y) 是我们要循环处理的
+        
+        // 我们要写的输出行号 (原来的列号 xIndex)
+        int row_out = yIndex_new + i * blockDim.y; // 这里的 y 是输出矩阵的行
+        int col_out = xIndex_new;                  // 这里的 x 是输出矩阵的列
+        
+        int index_out = row_out * height + col_out;
+
+        if (row_out < width && col_out < height) { // 注意 width/height 互换了
+             // 取数据：记得 Corner Turning
+             // 我们存的时候是 tile[row_in][col_in]
+             // 现在我们要取 tile[col_in][row_in]
+             // col_in 对应现在的 row_out (的局部部分)
+             // row_in 对应现在的 col_out (的局部部分)
+             
+             // 这部分索引很容易晕！请仔细思考：
+             // 原数据在 tile[threadIdx.y + i*blockDim.y][threadIdx.x]
+             // 我们要转置写出去。
+             // 应该读 tile[threadIdx.x][threadIdx.y + i*blockDim.y] 
+             
+             out[index_out] = tile[threadIdx.x][threadIdx.y + i * blockDim.y];
+        }
+    }
+}
+
 int main()
 {
     // 矩阵大小：2048 x 2048 (足够大以体现性能差异)
@@ -177,6 +272,27 @@ int main()
     cudaEventElapsedTime(&ms_opt, start, stop);
     CHECK(cudaMemcpy(h_out_opt, d_out, MEM_SIZE, cudaMemcpyDeviceToHost));
     printf("Optimized Kernel Time: %.3f ms\n", ms_opt);
+
+    // --------------------------------------------------------
+    // 测试 3: Coarsened Kernel
+    // --------------------------------------------------------
+    // 重点：调整 Grid 和 Block！
+    // Block: y 轴方向只需要 32 / 4 = 8 个线程
+    dim3 dimBlockCoarse(TILE_DIM, TILE_DIM / COARSE_FACTOR); 
+    // Grid: 保持不变，因为每个 Block 负责的区域大小还是 32x32 (虽然它只有 32x8 个线程)
+    dim3 dimGridCoarse((N + TILE_DIM - 1) / TILE_DIM, (N + TILE_DIM - 1) / TILE_DIM);
+
+    float ms_coarse = 0;
+    CHECK(cudaMemset(d_out, 0, MEM_SIZE));
+    
+    cudaEventRecord(start);
+    transposeCoarsened<<<dimGridCoarse, dimBlockCoarse>>>(d_out, d_in, N, N);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&ms_coarse, start, stop);
+    
+    printf("Coarsened Kernel Time: %.3f ms\n", ms_coarse);
+    if (ms_coarse > 0) printf("Speedup (vs Naive):    %.2fx\n", ms_naive / ms_coarse);
 
     // --------------------------------------------------------
     // 结果验证与分析
