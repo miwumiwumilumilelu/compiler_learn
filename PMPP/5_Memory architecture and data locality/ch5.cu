@@ -83,7 +83,7 @@ __global__ void matrixMulStatic(const float *A, const float *B, float *C,
         // ----------------------------------------------------------------
         // [在这里填入代码]
         if (ph * TILE_WIDTH + ty < K && col < N) {
-            Bs[ty][tx] = B[(ph * TILE_WIDTH + ty) * K + col];
+            Bs[ty][tx] = B[(ph * TILE_WIDTH + ty) * N + col];
         } else {
             Bs[ty][tx] = 0.0f;
         }
@@ -180,9 +180,9 @@ __global__ void matrixMulDynamic(const float *A, const float *B, float *C,
         // Load B
         if ((ph * tile_width + ty) < K && col < N)
             // [在这里填入代码] Bs[...] = ...
-            Bs[ty * tile_width + tx] = B[(ph * tile_width + ty) * K + col];
+            Bs[ty * tile_width + tx] = B[(ph * tile_width + ty) * N + col];
         else
-            // [在这里填入代码] Bs[...] = 0.0f;s
+            // [在这里填入代码] Bs[...] = 0.0f;
             Bs[ty * tile_width + tx] = 0.0f;
 
         __syncthreads();
