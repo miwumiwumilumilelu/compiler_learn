@@ -175,7 +175,7 @@ __global__ void convolution_tiled_shared(float *N, float *P, int width, int heig
     // 提示：这部分最容易写错，如果太难，可以先跳过做 Kernel 4
 
     if (tileCol >= FILTER_RADIUS && tileCol < IN_TILE_DIM - FILTER_RADIUS &&
-        tileRow >= FILTER_RADIUS && tileRow < IN_TILE_DIM - FILTER_DIM)
+        tileRow >= FILTER_RADIUS && tileRow < IN_TILE_DIM - FILTER_RADIUS)
     {
         float Pvalue = 0.0f;
 
