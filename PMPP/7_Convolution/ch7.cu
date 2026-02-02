@@ -29,7 +29,7 @@
 // 大小应该是 [FILTER_DIM][FILTER_DIM]
 // ---------------------------------------------------------
 // __constant__ float ...
-
+__constant__ float F_const[FILTER_DIM][FILTER_DIM];
 
 
 // =========================================================
@@ -78,6 +78,15 @@ __global__ void convolution_basic(float *N, float *F, float *P, int width, int h
         // 3. 边界检查 (Ghost Cells 处理)
         // 4. 累加 Pvalue
         // -----------------------------------------------------
+        for (int fRow = 0; fRow <FILTER_DIM; fRow++) {
+            for (int fCol = 0; fCol < FILTER_DIM; fCol++) {
+                int inRow = outRow - FILTER_RADIUS + fRow;
+                int inCol = outCol - FILTER_RADIUS + fCol;
+                if (inRow >= 0 && inRow < height && inCol >= 0 && inCol < width) {
+                    Pvalue += F[fRow * FILTER_DIM + fCol] * N[inRow * width + inCol];
+                }
+            }
+        }
         
         P[outRow * width + outCol] = Pvalue;
     }
@@ -100,7 +109,15 @@ __global__ void convolution_constant(float *N, float *P, int width, int height)
         // 读取滤波器时，直接使用全局声明的 F_const[fRow][fCol]
         // 而不是从参数 F 里读。
         // -----------------------------------------------------
-
+        for (int fRow = 0; fRow <FILTER_DIM; fRow++) {
+            for (int fCol = 0; fCol < FILTER_DIM; fCol++) {
+                int inRow = outRow - FILTER_RADIUS + fRow;
+                int inCol = outCol - FILTER_RADIUS + fCol;
+                if (inRow >= 0 && inRow < height && inCol >= 0 && inCol < width) {
+                    Pvalue += F_const[fRow][fCol] * N[inRow * width + inCol];
+                }
+            }
+        }
         P[outRow * width + outCol] = Pvalue;
     }
 }
@@ -117,6 +134,7 @@ __global__ void convolution_tiled_shared(float *N, float *P, int width, int heig
     // 大小应该是 [IN_TILE_DIM][IN_TILE_DIM]
     // -----------------------------------------------------
     // __shared__ float N_s...
+    __shared__ float N_s[IN_TILE_DIM][IN_TILE_DIM];
 
     // 1. 加载阶段 (协作加载)
     // 计算当前线程负责加载的 Global Memory 坐标
@@ -137,7 +155,11 @@ __global__ void convolution_tiled_shared(float *N, float *P, int width, int heig
     // TODO 5: 加载数据到 Shared Memory
     // 检查 inCol, inRow 是否在图像范围内，在则加载，不在则填 0
     // -----------------------------------------------------
-
+    if (inCol >= 0 && inCol < width && inRow >= 0 && inRow < height) {
+        N_s[tileRow][tileCol] = N[inRow * width + inCol];
+    } else {
+        N_s[tileRow][tileCol] = 0.0f;
+    }
     __syncthreads();
 
     // 2. 计算阶段
@@ -151,6 +173,25 @@ __global__ void convolution_tiled_shared(float *N, float *P, int width, int heig
     // -----------------------------------------------------
     
     // 提示：这部分最容易写错，如果太难，可以先跳过做 Kernel 4
+
+    if (tileCol >= FILTER_RADIUS && tileCol < IN_TILE_DIM - FILTER_RADIUS &&
+        tileRow >= FILTER_RADIUS && tileRow < IN_TILE_DIM - FILTER_DIM)
+    {
+        float Pvalue = 0.0f;
+
+        for (int fRow = 0; fRow < FILTER_DIM; fRow++) {
+            for (int fCol = 0; fCol < FILTER_DIM; fCol++) {
+                int sRow = tileRow - FILTER_RADIUS + fRow;
+                int sCol = tileCol - FILTER_RADIUS + fCol;
+
+                Pvalue += F_const[fRow][fCol] * N_s[sRow][sCol];
+            }
+        }
+
+        if (inRow < height && inCol < width) {
+            P[inRow * width + inCol] = Pvalue;
+        }
+    }
 }
 
 // =========================================================
@@ -168,6 +209,7 @@ __global__ void convolution_tiled_L2(float *N, float *P, int width, int height)
     // 只需要存内部数据，不需要 Halo，所以大小是 [TILE_SIZE][TILE_SIZE]
     // -----------------------------------------------------
     // __shared__ float N_s...
+    __shared__ float N_s[TILE_SIZE][TILE_SIZE];
 
     int tx = threadIdx.x;
     int ty = threadIdx.y;
@@ -177,8 +219,10 @@ __global__ void convolution_tiled_L2(float *N, float *P, int width, int height)
     // 1. 加载内部数据 (Internal Elements)
     if (outCol < width && outRow < height) {
         // TODO 8: 加载 N[outRow][outCol] 到 N_s[ty][tx]
+        N_s[ty][tx] = N[outRow * width + outCol];
     } else {
         // TODO 8: 填充 0
+        N_s[ty][tx] = 0.0f;
     }
     __syncthreads();
 
@@ -193,6 +237,20 @@ __global__ void convolution_tiled_L2(float *N, float *P, int width, int height)
                 // 如果在 -> 读 N_s
                 // 如果不在 -> 读 N (Global Memory, 蹭 L2 Cache)
                 // -----------------------------------------------------
+                int sRow = ty - FILTER_RADIUS + fRow;
+                int sCol = tx - FILTER_RADIUS + fCol;
+
+                if (sRow >= 0 && sRow < TILE_SIZE && sCol >=0 && sCol < TILE_SIZE) {
+                    Pvalue += F_const[fRow][fCol] * N_s[sRow][sCol];
+                }
+                else {
+                    int inRow = outRow - FILTER_RADIUS + fRow;
+                    int inCol = outCol - FILTER_RADIUS + fCol;
+
+                    if (inRow >= 0 && inRow < height && inCol >= 0 && inCol < width) {
+                        Pvalue += F_const[fRow][fCol] * N[inRow * width + inCol];
+                    }
+                }
             }
         }
         P[outRow * width + outCol] = Pvalue;
@@ -231,6 +289,7 @@ int main() {
     // 使用 cudaMemcpyToSymbol
     // -----------------------------------------------------
     // cudaMemcpyToSymbol(...);
+    cudaMemcpyToSymbol(F_const, h_F, f_size_bytes);
 
     // 计时
     cudaEvent_t start, stop;
