@@ -1,0 +1,158 @@
+ELF Header:
+  Magic:   7f 45 4c 46 02 02 01 00 00 00 00 00 00 00 00 00
+  Class:                             ELF64
+  Data:                              2's complement, big endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              DYN (Shared object file)
+  Machine:                           Sparc v9
+  Version:                           0x1
+  Entry point address:               0x0
+  Start of program headers:          64 (bytes into file)
+  Start of section headers:          2696 (bytes into file)
+  Flags:                             0x0
+  Size of this header:               64 (bytes)
+  Size of program headers:           56 (bytes)
+  Number of program headers:         9
+  Size of section headers:           64 (bytes)
+  Number of section headers:         20
+  Section header string table index: 18
+There are 20 section headers, starting at offset 0xa88:
+
+Section Headers:
+  [Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            0000000000000000 000000 000000 00      0   0  0
+  [ 1] .dynsym           DYNSYM          0000000000000238 000238 000108 18   A  4   1  8
+  [ 2] .gnu.hash         GNU_HASH        0000000000000340 000340 000040 00   A  1   0  8
+  [ 3] .hash             HASH            0000000000000380 000380 000060 04   A  1   0  4
+  [ 4] .dynstr           STRTAB          00000000000003e0 0003e0 00003a 00   A  0   0  1
+  [ 5] .rel.dyn          REL             0000000000000420 000420 000050 10   A  1   0  8
+  [ 6] .rel.plt          REL             0000000000000470 000470 000030 10  AI  1  14  8
+  [ 7] .rodata           PROGBITS        00000000000004a0 0004a0 000007 01 AMS  0   0  1
+  [ 8] .text             PROGBITS        00000000001004a8 0004a8 0000e0 00  AX  0   0  4
+  [ 9] .plt              PROGBITS        0000000000200590 000590 0000e0 00 WAX  0   0 16
+  [10] .dynamic          DYNAMIC         0000000000300670 000670 0000f0 10  WA  4   0  8
+  [11] .got              PROGBITS        0000000000300760 000760 000028 00  WA  0   0  8
+  [12] .relro_padding    NOBITS          0000000000300788 000788 001878 00  WA  0   0  1
+  [13] .data             PROGBITS        0000000000400788 000788 000008 00  WA  0   0  4
+  [14] .got.plt          PROGBITS        0000000000400790 000790 000030 00  WA  0   0  8
+  [15] .bss              NOBITS          00000000004007c0 0007c0 000004 00  WA  0   0  4
+  [16] .comment          PROGBITS        0000000000000000 0007c0 00003b 01  MS  0   0  1
+  [17] .symtab           SYMTAB          0000000000000000 000800 000180 18     19   6  8
+  [18] .shstrtab         STRTAB          0000000000000000 000980 00009a 00      0   0  1
+  [19] .strtab           STRTAB          0000000000000000 000a1a 00006c 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  R (retain), p (processor specific)
+
+Elf file type is DYN (Shared object file)
+Entry point 0x0
+There are 9 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  PHDR           0x000040 0x0000000000000040 0x0000000000000040 0x0001f8 0x0001f8 R   0x8
+  LOAD           0x000000 0x0000000000000000 0x0000000000000000 0x0004a7 0x0004a7 R   0x100000
+  LOAD           0x0004a8 0x00000000001004a8 0x00000000001004a8 0x0000e0 0x0000e0 R E 0x100000
+  LOAD           0x000590 0x0000000000200590 0x0000000000200590 0x0000e0 0x0000e0 RWE 0x100000
+  LOAD           0x000670 0x0000000000300670 0x0000000000300670 0x000118 0x001990 RW  0x100000
+  LOAD           0x000788 0x0000000000400788 0x0000000000400788 0x000038 0x00003c RW  0x100000
+  DYNAMIC        0x000670 0x0000000000300670 0x0000000000300670 0x0000f0 0x0000f0 RW  0x8
+  GNU_RELRO      0x000670 0x0000000000300670 0x0000000000300670 0x000118 0x001990 R   0x1
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x0
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     
+   01     .dynsym .gnu.hash .hash .dynstr .rel.dyn .rel.plt .rodata 
+   02     .text 
+   03     .plt 
+   04     .dynamic .got .relro_padding 
+   05     .data .got.plt .bss 
+   06     .dynamic 
+   07     .dynamic .got .relro_padding 
+   08     
+   None   .comment .symtab .shstrtab .strtab 
+Dynamic section at offset 0x670 contains 15 entries:
+  Tag                Type       Name/Value
+  0x0000000000000011 (REL)      0x420
+  0x0000000000000012 (RELSZ)    80 (bytes)
+  0x0000000000000013 (RELENT)   16 (bytes)
+  0x000000006ffffffa (RELCOUNT) 2
+  0x0000000000000017 (JMPREL)   0x470
+  0x0000000000000002 (PLTRELSZ) 48 (bytes)
+  0x0000000000000003 (PLTGOT)   0x200590
+  0x0000000000000014 (PLTREL)   REL
+  0x0000000000000006 (SYMTAB)   0x238
+  0x000000000000000b (SYMENT)   24 (bytes)
+  0x0000000000000005 (STRTAB)   0x3e0
+  0x000000000000000a (STRSZ)    58 (bytes)
+  0x000000006ffffef5 (GNU_HASH) 0x340
+  0x0000000000000004 (HASH)     0x380
+  0x0000000000000000 (NULL)     0x0
+
+Relocation section '.rel.dyn' at offset 0x420 contains 5 entries:
+    Offset             Info             Type               Symbol's Value  Symbol's Name
+0000000000300778  0000000000000016 R_SPARC_RELATIVE                  
+0000000000300780  0000000000000016 R_SPARC_RELATIVE                  
+0000000000300770  0000000100000014 R_SPARC_GLOB_DAT       0000000000000000 val2
+0000000000300760  0000000500000014 R_SPARC_GLOB_DAT       0000000000400788 val0
+0000000000300768  0000000600000014 R_SPARC_GLOB_DAT       00000000004007c0 val1
+
+Relocation section '.rel.plt' at offset 0x470 contains 3 entries:
+    Offset             Info             Type               Symbol's Value  Symbol's Name
+00000000004007a8  0000000800000015 R_SPARC_JMP_SLOT       0000000000100558 func5
+00000000004007b0  0000000200000015 R_SPARC_JMP_SLOT       0000000000000000 func6
+00000000004007b8  0000000300000015 R_SPARC_JMP_SLOT       0000000000000000 func9
+
+Symbol table '.dynsym' contains 11 entries:
+   Num:    Value          Size Type    Bind   Vis       Ndx Name
+     0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT   UND 
+     1: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND val2
+     2: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND func6
+     3: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND func9
+     4: 00000000001004a8    84 FUNC    GLOBAL DEFAULT     8 func2
+     5: 0000000000400788     4 OBJECT  GLOBAL DEFAULT    13 val0
+     6: 00000000004007c0     4 OBJECT  GLOBAL DEFAULT    15 val1
+     7: 00000000001004fc    28 FUNC    GLOBAL DEFAULT     8 func3
+     8: 0000000000100558    48 FUNC    GLOBAL DEFAULT     8 func5
+     9: 0000000000100518    20 FUNC    GLOBAL DEFAULT     8 func7
+    10: 000000000010052c    44 FUNC    GLOBAL DEFAULT     8 func8
+
+Symbol table '.symtab' contains 16 entries:
+   Num:    Value          Size Type    Bind   Vis       Ndx Name
+     0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT   UND 
+     1: 0000000000000000     0 FILE    LOCAL  DEFAULT   ABS ed01.c
+     2: 0000000000000000     0 FILE    LOCAL  DEFAULT   ABS ed02.c
+     3: 000000000040078c     4 OBJECT  LOCAL  DEFAULT    13 val4
+     4: 0000000000300760     0 NOTYPE  LOCAL  HIDDEN     11 _GLOBAL_OFFSET_TABLE_
+     5: 0000000000300670     0 NOTYPE  LOCAL  HIDDEN     10 _DYNAMIC
+     6: 00000000001004a8    84 FUNC    GLOBAL DEFAULT     8 func2
+     7: 0000000000400788     4 OBJECT  GLOBAL DEFAULT    13 val0
+     8: 00000000004007c0     4 OBJECT  GLOBAL DEFAULT    15 val1
+     9: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND val2
+    10: 00000000001004fc    28 FUNC    GLOBAL DEFAULT     8 func3
+    11: 0000000000100558    48 FUNC    GLOBAL DEFAULT     8 func5
+    12: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND func6
+    13: 0000000000100518    20 FUNC    GLOBAL DEFAULT     8 func7
+    14: 000000000010052c    44 FUNC    GLOBAL DEFAULT     8 func8
+    15: 0000000000000000     0 NOTYPE  GLOBAL DEFAULT   UND func9
+There are no section groups in this file.
+Histogram for bucket list length (total of 11 buckets)
+ Length  Number     % of total  Coverage
+      0  4          ( 36.4%)       0.0%
+      1  4          ( 36.4%)      40.0%
+      2  3          ( 27.3%)     100.0%
+Histogram for `.gnu.hash' bucket list length (total of 1 buckets)
+ Length  Number     % of total  Coverage
+      0  0          (  0.0%)       0.0%
+      1  0          (  0.0%)       0.0%
+      2  0          (  0.0%)       0.0%
+      3  0          (  0.0%)       0.0%
+      4  0          (  0.0%)       0.0%
+      5  0          (  0.0%)       0.0%
+      6  0          (  0.0%)       0.0%
+      7  1          (100.0%)     100.0%
